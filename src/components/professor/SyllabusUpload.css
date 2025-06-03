@@ -1,0 +1,355 @@
+.syllabus-upload-container {
+    background-color: white;
+    border-radius: 8px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    margin-top: 1rem;
+}
+
+.upload-section {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.file-input {
+    flex: 1;
+    padding: 0.75rem;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    background-color: white;
+}
+
+.file-input:focus {
+    outline: none;
+    border-color: #4a90e2;
+    box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.2);
+}
+
+.upload-button {
+    padding: 0.75rem 1.5rem;
+    color: white;
+    background-color: #4a90e2;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: background-color 0.2s;
+    min-width: 120px;
+}
+
+.upload-button:hover:not(:disabled) {
+    background-color: #357abd;
+}
+
+.upload-button:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+}
+
+.error-message {
+    color: #dc3545;
+    background-color: #f8d7da;
+    border: 1px solid #f5c6cb;
+    padding: 0.75rem;
+    border-radius: 4px;
+    margin-top: 0.5rem;
+    font-size: 0.9rem;
+}
+
+.files-queue,
+.uploaded-files {
+    margin-top: 1.5rem;
+}
+
+.files-queue h4,
+.uploaded-files h4 {
+    color: #2c3e50;
+    margin-bottom: 1rem;
+    font-size: 1.1rem;
+}
+
+.files-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.file-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    background-color: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 4px;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.file-details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    flex: 1;
+}
+
+.file-name {
+    font-weight: 500;
+    color: #2c3e50;
+}
+
+.file-type {
+    font-size: 0.8rem;
+    color: #6c757d;
+    background-color: #e9ecef;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    display: inline-block;
+}
+
+.file-size {
+    font-size: 0.8rem;
+    color: #6c757d;
+}
+
+.file-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.view-button,
+.delete-button,
+.remove-button {
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-decoration: none;
+    border: none;
+}
+
+.view-button {
+    background-color: #4a90e2;
+    color: white;
+}
+
+.view-button:hover {
+    background-color: #357abd;
+}
+
+.delete-button,
+.remove-button {
+    background-color: #dc3545;
+    color: white;
+}
+
+.delete-button:hover,
+.remove-button:hover {
+    background-color: #c82333;
+}
+
+.progress-bar {
+    width: 100%;
+    height: 4px;
+    background-color: #e9ecef;
+    border-radius: 2px;
+    margin-top: 0.5rem;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background-color: #4a90e2;
+    transition: width 0.3s ease;
+}
+
+.upload-instructions {
+    margin-bottom: 1rem;
+    padding: 1rem;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    border: 1px solid #e9ecef;
+}
+
+.upload-instructions p {
+    margin: 0.5rem 0;
+    color: #495057;
+    font-size: 0.9rem;
+}
+
+.upload-instructions p:first-child {
+    margin-top: 0;
+}
+
+.upload-instructions p:last-child {
+    margin-bottom: 0;
+}
+
+.topics-count {
+    font-size: 0.8rem;
+    color: #28a745;
+    background-color: #e8f5e9;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    display: inline-block;
+    margin-top: 0.25rem;
+}
+
+/* Estilos para las preguntas generadas */
+.questions-grid {
+    background-color: white;
+    border-radius: 8px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.questions-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    margin-top: 1rem;
+}
+
+.question-card {
+    background-color: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    padding: 1.5rem;
+}
+
+.question-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.question-number {
+    font-weight: 600;
+    color: #2c3e50;
+    font-size: 1.1rem;
+}
+
+.question-topic {
+    font-size: 0.9rem;
+    color: #6c757d;
+    background-color: #e9ecef;
+    padding: 0.25rem 0.75rem;
+    border-radius: 4px;
+}
+
+.question-content {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.question-text {
+    font-size: 1.1rem;
+    color: #2c3e50;
+    margin: 0;
+    line-height: 1.5;
+}
+
+.options-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin: 0.5rem 0;
+}
+
+.option {
+    padding: 0.75rem;
+    background-color: white;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    display: flex;
+    gap: 0.5rem;
+    transition: all 0.2s ease;
+}
+
+.option.correct {
+    background-color: #d4edda;
+    border-color: #c3e6cb;
+}
+
+.option-label {
+    font-weight: 600;
+    color: #495057;
+    min-width: 1.5rem;
+}
+
+.explanation {
+    margin-top: 1rem;
+    padding: 1rem;
+    background-color: #e8f4f8;
+    border-radius: 4px;
+    font-size: 0.95rem;
+    color: #2c3e50;
+}
+
+.explanation strong {
+    color: #1a5276;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1.5rem;
+}
+
+.action-buttons .upload-button {
+    flex: 1;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .upload-section {
+        flex-direction: column;
+    }
+
+    .file-input {
+        width: 100%;
+    }
+
+    .upload-button {
+        width: 100%;
+    }
+
+    .file-item {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .file-actions {
+        width: 100%;
+    }
+
+    .view-button,
+    .delete-button,
+    .remove-button {
+        flex: 1;
+        text-align: center;
+    }
+
+    .action-buttons {
+        flex-direction: column;
+    }
+    
+    .question-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+    
+    .question-topic {
+        width: 100%;
+        text-align: center;
+    }
+} 
