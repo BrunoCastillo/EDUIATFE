@@ -1,9 +1,15 @@
 import { supabase } from '../config/supabaseClient';
+import { deepseekService } from './deepseek.service';
 
 class RAGService {
     constructor() {
         this.DEEPSEEK_API_KEY = process.env.REACT_APP_DEEPSEEK_API_KEY;
         this.DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
+        this.deepseek = deepseekService;
+        this.config = {
+            chunkSize: 1000,
+            chunkOverlap: 200
+        };
     }
 
     async generateEmbedding(text) {
@@ -264,6 +270,308 @@ Recuerda que tu objetivo es ayudar al estudiante a comprender mejor el tema, no 
             console.error('Error al procesar la pregunta:', error);
             throw new Error(error.message || 'No se pudo procesar la pregunta');
         }
+    }
+
+    async processDocument(file, subjectId) {
+        try {
+            console.log('Iniciando procesamiento del documento...');
+            
+            // 1. Extraer texto del PDF
+            const text = await this.extractTextFromPDF(file);
+            console.log('Texto extraído del PDF');
+            
+            // 2. Dividir en chunks
+            const chunks = this.splitIntoChunks(text);
+            console.log(`Documento dividido en ${chunks.length} chunks`);
+            
+            // 3. Generar embeddings
+            const embeddings = await this.generateEmbeddings(chunks);
+            console.log('Embeddings generados');
+            
+            // 4. Guardar en Supabase
+            const { data: document, error: docError } = await supabase
+                .from('documents')
+                .insert([{
+                    subject_id: subjectId,
+                    file_name: file.name,
+                    file_type: file.type,
+                    file_size: file.size,
+                    content: text
+                }])
+                .select()
+                .single();
+
+            if (docError) throw docError;
+            console.log('Documento guardado en base de datos');
+
+            // 5. Guardar embeddings
+            const embeddingsToInsert = embeddings.map((embedding, index) => ({
+                document_id: document.id,
+                chunk_index: index,
+                content: chunks[index],
+                embedding: embedding
+            }));
+
+            const { error: embeddingError } = await supabase
+                .from('document_embeddings')
+                .insert(embeddingsToInsert);
+
+            if (embeddingError) throw embeddingError;
+            console.log('Embeddings guardados en base de datos');
+
+            // 6. Generar preguntas de opción múltiple
+            console.log('Iniciando generación de preguntas...');
+            const questions = await this.generateMultipleChoiceQuestions(chunks, document.id);
+            console.log(`Se generaron ${questions.length} preguntas`);
+
+            if (questions.length === 0) {
+                console.warn('No se generaron preguntas para el documento');
+                return {
+                    success: true,
+                    documentId: document.id,
+                    questionsCount: 0
+                };
+            }
+
+            // 7. Guardar preguntas en la base de datos
+            const { error: questionsError } = await supabase
+                .from('document_questions')
+                .insert(questions);
+
+            if (questionsError) {
+                console.error('Error al guardar las preguntas:', questionsError);
+                throw questionsError;
+            }
+            console.log('Preguntas guardadas en base de datos');
+
+            return {
+                success: true,
+                documentId: document.id,
+                questionsCount: questions.length
+            };
+        } catch (error) {
+            console.error('Error en processDocument:', error);
+            throw error;
+        }
+    }
+
+    async generateMultipleChoiceQuestions(chunks, documentId) {
+        try {
+            console.log('Iniciando generación de preguntas...');
+            const questions = [];
+            const chunksForQuestions = this.selectChunksForQuestions(chunks);
+            console.log(`Seleccionados ${chunksForQuestions.length} chunks para generar preguntas`);
+
+            for (const [index, chunk] of chunksForQuestions.entries()) {
+                console.log(`Generando pregunta ${index + 1} de ${chunksForQuestions.length}`);
+                
+                const prompt = `
+                    Genera una pregunta de opción múltiple basada en el siguiente texto:
+                    "${chunk}"
+                    
+                    La pregunta debe:
+                    1. Ser clara y concisa
+                    2. Tener 4 opciones de respuesta
+                    3. Tener solo una respuesta correcta
+                    4. Incluir una explicación de la respuesta correcta
+                    
+                    Formato de respuesta:
+                    {
+                        "question": "pregunta",
+                        "options": ["opción A", "opción B", "opción C", "opción D"],
+                        "correct_answer": "opción correcta",
+                        "explanation": "explicación de la respuesta correcta"
+                    }
+                `;
+
+                const response = await fetch(this.DEEPSEEK_API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${this.DEEPSEEK_API_KEY}`
+                    },
+                    body: JSON.stringify({
+                        model: "deepseek-chat",
+                        messages: [
+                            {
+                                role: "system",
+                                content: "Eres un experto en crear preguntas de opción múltiple educativas y desafiantes."
+                            },
+                            {
+                                role: "user",
+                                content: prompt
+                            }
+                        ],
+                        temperature: 0.7,
+                        max_tokens: 500
+                    })
+                });
+
+                const data = await response.json();
+                console.log('Respuesta de DeepSeek:', data);
+
+                try {
+                    const questionData = JSON.parse(data.choices[0].message.content);
+                    questions.push({
+                        document_id: documentId,
+                        question: questionData.question,
+                        options: questionData.options,
+                        correct_answer: questionData.correct_answer,
+                        explanation: questionData.explanation,
+                        created_at: new Date().toISOString()
+                    });
+
+                    console.log(`Pregunta ${index + 1} generada exitosamente`);
+                } catch (parseError) {
+                    console.error('Error al procesar la respuesta:', parseError);
+                    console.log('Respuesta que causó el error:', data);
+                }
+            }
+
+            return questions;
+        } catch (error) {
+            console.error('Error generando preguntas:', error);
+            throw error;
+        }
+    }
+
+    selectChunksForQuestions(chunks) {
+        // Seleccionar chunks que tengan suficiente contenido para generar preguntas
+        const validChunks = chunks.filter(chunk => 
+            chunk.length > 100 && // Mínimo 100 caracteres
+            chunk.split(' ').length > 20 // Mínimo 20 palabras
+        );
+
+        // Seleccionar 10 chunks aleatorios o todos si hay menos de 10
+        const selectedChunks = validChunks.length <= 10 
+            ? validChunks 
+            : this.getRandomChunks(validChunks, 10);
+
+        return selectedChunks;
+    }
+
+    getRandomChunks(chunks, count) {
+        const shuffled = [...chunks].sort(() => 0.5 - Math.random());
+        return shuffled.slice(0, count);
+    }
+
+    async processDocumentWithText(text, documentId) {
+        try {
+            console.log('Iniciando procesamiento del documento con texto...');
+            
+            // Dividir en chunks
+            const chunks = this.splitIntoChunks(text);
+            console.log(`Documento dividido en ${chunks.length} chunks`);
+            
+            // Generar embeddings
+            const embeddings = await this.generateEmbeddings(chunks);
+            console.log('Embeddings generados');
+            
+            // Guardar embeddings
+            const embeddingsToInsert = embeddings.map((embedding, index) => ({
+                document_id: documentId,
+                page_number: index + 1,
+                fragment: chunks[index],
+                embedding: embedding
+            }));
+
+            const { error: embeddingError } = await supabase
+                .from('embeddings')
+                .insert(embeddingsToInsert);
+
+            if (embeddingError) throw embeddingError;
+            console.log('Embeddings guardados en base de datos');
+
+            // Generar preguntas de opción múltiple
+            console.log('Iniciando generación de preguntas...');
+            const questions = await this.generateMultipleChoiceQuestions(chunks, documentId);
+            console.log(`Se generaron ${questions.length} preguntas`);
+
+            if (questions.length === 0) {
+                console.warn('No se generaron preguntas para el documento');
+                return {
+                    success: true,
+                    documentId: documentId,
+                    questionsCount: 0
+                };
+            }
+
+            // Guardar preguntas en la base de datos
+            const { error: questionsError } = await supabase
+                .from('document_questions')
+                .insert(questions);
+
+            if (questionsError) {
+                console.error('Error al guardar las preguntas:', questionsError);
+                throw questionsError;
+            }
+            console.log('Preguntas guardadas en base de datos');
+
+            return {
+                success: true,
+                documentId: documentId,
+                questionsCount: questions.length
+            };
+        } catch (error) {
+            console.error('Error en processDocumentWithText:', error);
+            throw error;
+        }
+    }
+
+    splitIntoChunks(text) {
+        try {
+            console.log('Iniciando división del texto en chunks...');
+            
+            // Dividir el texto en oraciones
+            const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
+            console.log(`Texto dividido en ${sentences.length} oraciones`);
+            
+            const chunks = [];
+            let currentChunk = '';
+            
+            for (const sentence of sentences) {
+                // Si agregar la siguiente oración excede el tamaño del chunk
+                if ((currentChunk + sentence).length > this.config.chunkSize) {
+                    // Si el chunk actual no está vacío, guardarlo
+                    if (currentChunk.trim().length > 0) {
+                        chunks.push(currentChunk.trim());
+                    }
+                    // Iniciar nuevo chunk con la oración actual
+                    currentChunk = sentence;
+                } else {
+                    // Agregar la oración al chunk actual
+                    currentChunk += (currentChunk ? ' ' : '') + sentence;
+                }
+            }
+            
+            // Agregar el último chunk si no está vacío
+            if (currentChunk.trim().length > 0) {
+                chunks.push(currentChunk.trim());
+            }
+            
+            console.log(`Texto dividido en ${chunks.length} chunks`);
+            return chunks;
+        } catch (error) {
+            console.error('Error al dividir el texto en chunks:', error);
+            throw error;
+        }
+    }
+
+    async generateEmbeddings(chunks) {
+        try {
+            console.log('Iniciando generación de embeddings...');
+            const embeddings = chunks.map(chunk => this.generateFakeEmbedding(chunk));
+            console.log('Embeddings generados');
+            return embeddings;
+        } catch (error) {
+            console.error('Error al generar embeddings:', error);
+            throw error;
+        }
+    }
+
+    generateFakeEmbedding(text) {
+        // Generar un vector aleatorio de 1536 dimensiones
+        return Array(1536).fill(0).map(() => Math.random());
     }
 }
 
