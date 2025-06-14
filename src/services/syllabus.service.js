@@ -4,6 +4,11 @@ import { deepseekService } from './deepseek.service';
 export const syllabusService = {
     async uploadSyllabus(file, subjectId) {
         try {
+            // Validar campos obligatorios
+            if (!file || !subjectId) {
+                throw new Error('Faltan datos obligatorios: archivo o ID de materia');
+            }
+
             // 1. Procesar el sílabo para extraer e insertar temas y subtemas ANTES de subir el archivo
             await this.processSyllabus(null, subjectId, file);
 
@@ -11,35 +16,36 @@ export const syllabusService = {
             const fileExt = file.name.split('.').pop();
             const fileName = `${subjectId}/${Date.now()}.${fileExt}`;
             console.log('[syllabusService] Subiendo archivo:', fileName, file);
+            
             const { data: fileData, error: uploadError } = await supabase.storage
                 .from('syllabus')
-                .upload(fileName, file, { upsert: true });
-            console.log('[syllabusService] Resultado de upload:', fileData, uploadError);
-
+                .upload(fileName, file, { 
+                    upsert: true,
+                    cacheControl: '3600',
+                    contentType: file.type
+                });
+            
             if (uploadError) throw uploadError;
 
             // 3. Obtener la URL pública del archivo
-            const { data: publicUrlData, error: publicUrlError } = supabase.storage
+            const { data: publicUrlData } = supabase.storage
                 .from('syllabus')
                 .getPublicUrl(fileName);
-            console.log('[syllabusService] URL pública:', publicUrlData, publicUrlError);
-            if (publicUrlError) throw publicUrlError;
 
             // 4. Guardar la referencia en la tabla syllabus
+            const syllabusData = {
+                subject_id: subjectId,
+                file_name: file.name,
+                file_type: file.type,
+                file_url: publicUrlData.publicUrl,
+                file_path: fileName
+            };
+
             const { data, error: dbError } = await supabase
                 .from('syllabus')
-                .insert([
-                    {
-                        subject_id: subjectId,
-                        file_name: file.name,
-                        file_type: file.type,
-                        file_url: publicUrlData.publicUrl,
-                        file_path: fileName
-                    }
-                ])
+                .insert([syllabusData])
                 .select()
                 .single();
-            console.log('[syllabusService] Resultado de insert en tabla syllabus:', data, dbError);
 
             if (dbError) throw dbError;
 

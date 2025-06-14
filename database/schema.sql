@@ -147,4 +147,71 @@ CREATE INDEX IF NOT EXISTS idx_documents_subject ON documents(subject_id);
 CREATE INDEX IF NOT EXISTS idx_messages_student ON messages(student_id);
 CREATE INDEX IF NOT EXISTS idx_messages_subject ON messages(subject_id);
 CREATE INDEX IF NOT EXISTS idx_enrollments_student ON enrollments(student_id);
-CREATE INDEX IF NOT EXISTS idx_enrollments_subject ON enrollments(subject_id); 
+CREATE INDEX IF NOT EXISTS idx_enrollments_subject ON enrollments(subject_id);
+
+-- Tabla de temas del sílabo
+CREATE TABLE IF NOT EXISTS syllabus_topics (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    subject_id UUID REFERENCES subjects(id) ON DELETE CASCADE,
+    topic_number TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Habilitar RLS para syllabus_topics
+ALTER TABLE syllabus_topics ENABLE ROW LEVEL SECURITY;
+
+-- Política temporal más permisiva para pruebas
+CREATE POLICY "Enable all access for authenticated users"
+ON syllabus_topics FOR ALL
+TO authenticated
+USING (true)
+WITH CHECK (true);
+
+-- Eliminar políticas anteriores si existen
+DROP POLICY IF EXISTS "Enable insert for authenticated users" ON syllabus_topics;
+DROP POLICY IF EXISTS "Enable read access for authenticated users" ON syllabus_topics;
+DROP POLICY IF EXISTS "Enable update for professors" ON syllabus_topics;
+DROP POLICY IF EXISTS "Enable delete for professors" ON syllabus_topics;
+
+-- Tabla de subtemas del sílabo
+CREATE TABLE IF NOT EXISTS syllabus_subtopics (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    topic_id UUID REFERENCES syllabus_topics(id) ON DELETE CASCADE,
+    subtopic_number TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Índices para las tablas de temas y subtemas
+CREATE INDEX IF NOT EXISTS idx_syllabus_topics_subject ON syllabus_topics(subject_id);
+CREATE INDEX IF NOT EXISTS idx_syllabus_subtopics_topic ON syllabus_subtopics(topic_id);
+
+-- Políticas de seguridad para syllabus_topics
+CREATE POLICY "Professors can manage their subjects' topics"
+ON syllabus_topics FOR ALL
+TO authenticated
+USING (
+    EXISTS (
+        SELECT 1 FROM subjects
+        WHERE subjects.id = syllabus_topics.subject_id
+        AND subjects.professor_id = auth.uid()
+    )
+);
+
+-- Políticas de seguridad para syllabus_subtopics
+CREATE POLICY "Professors can manage their subjects' subtopics"
+ON syllabus_subtopics FOR ALL
+TO authenticated
+USING (
+    EXISTS (
+        SELECT 1 FROM syllabus_topics
+        JOIN subjects ON subjects.id = syllabus_topics.subject_id
+        WHERE syllabus_topics.id = syllabus_subtopics.topic_id
+        AND subjects.professor_id = auth.uid()
+    )
+); 

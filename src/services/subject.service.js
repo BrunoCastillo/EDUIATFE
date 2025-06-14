@@ -18,7 +18,7 @@ class SubjectService {
             if (error) throw error;
             return data;
         } catch (error) {
-            console.error('Error al obtener asignaturas:', error);
+            console.error('Error al obtener Materias:', error);
             throw error;
         }
     }
@@ -30,86 +30,54 @@ class SubjectService {
                 throw new Error('Faltan datos requeridos');
             }
 
-            // Generar código automáticamente
-            const code = this.generateCode(subjectData.name);
+            // Verificar sesión actual
+            const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+            if (sessionError) throw sessionError;
 
-            // Verificar usuario autenticado
-            const { data: { user }, error: authError } = await supabase.auth.getUser();
-            if (authError) throw authError;
-
-            if (!user) {
-                throw new Error('Usuario no autenticado');
+            if (!session) {
+                throw new Error('No hay una sesión activa. Por favor, inicia sesión nuevamente.');
             }
 
+            const user = session.user;
             console.log('Usuario autenticado:', user);
 
             // Verificar que el usuario autenticado coincida con el professor_id
             if (user.id !== subjectData.professor_id) {
-                throw new Error('No tienes permiso para crear asignaturas para otros profesores');
+                throw new Error('No tienes permiso para crear Materias para otros profesores');
             }
 
-            // Verificar si el usuario existe en nuestra tabla users
-            const { data: existingUserById, error: userErrorById } = await supabase
-                .from('users')
+            // Verificar si el usuario existe en nuestra tabla profiles y tiene el rol correcto
+            const { data: profile, error: profileError } = await supabase
+                .from('profiles')
                 .select('*')
                 .eq('id', user.id)
+                .eq('role', 'professor')
                 .single();
 
-            let userIdToUse = user.id;
-
-            if (userErrorById || !existingUserById) {
-                // Buscar por email antes de crear
-                const { data: existingUserByEmail, error: userErrorByEmail } = await supabase
-                    .from('users')
-                    .select('*')
-                    .eq('email', user.email)
-                    .single();
-
-                if (existingUserByEmail) {
-                    // Si existe por email, usar ese usuario
-                    userIdToUse = existingUserByEmail.id;
-                    console.log('Usuario ya existe por email, usando id:', userIdToUse);
-                } else {
-                    // Crear el usuario en nuestra tabla
-                    const newUser = {
+            if (profileError || !profile) {
+                console.log('Perfil no encontrado o no es profesor, creando/actualizando perfil...');
+                const { data: newProfile, error: createProfileError } = await supabase
+                    .from('profiles')
+                    .upsert([
+                        {
                         id: user.id,
                         email: user.email,
-                        full_name: user.user_metadata?.full_name || user.email,
                         role: 'professor'
-                    };
-                    console.log('Intentando crear usuario con datos:', newUser);
-                    const { data: insertedUser, error: insertError } = await supabase
-                        .from('users')
-                        .insert([newUser])
+                        }
+                    ])
                         .select()
                         .single();
-                    if (insertError) {
-                        console.error('Error al crear usuario:', insertError);
-                        throw new Error(`Error al sincronizar el usuario: ${insertError.message}`);
-                    }
-                    userIdToUse = insertedUser.id;
-                    console.log('Usuario creado exitosamente:', insertedUser);
+
+                if (createProfileError) {
+                    console.error('Error al crear/actualizar perfil:', createProfileError);
+                    throw new Error('No se pudo crear/actualizar el perfil del profesor');
                 }
             }
-
-            // Verificar nuevamente que el usuario existe
-            const { data: finalUser, error: finalUserError } = await supabase
-                .from('users')
-                .select('id')
-                .eq('id', userIdToUse)
-                .single();
-
-            if (finalUserError || !finalUser) {
-                throw new Error('No se pudo verificar la existencia del usuario');
-            }
-
-            console.log('Usuario verificado antes de crear asignatura:', finalUser);
 
             // Intentar crear la asignatura
             const subjectToCreate = {
                 name: subjectData.name,
-                code: code,
-                professor_id: subjectData.professor_id
+                professor_id: user.id
             };
 
             console.log('Intentando crear asignatura con datos:', subjectToCreate);
@@ -121,14 +89,11 @@ class SubjectService {
                 .single();
 
             if (subjectError) {
-                console.error('Error al crear asignatura:', subjectError);
-                if (subjectError.code === '42501') {
-                    throw new Error('No tienes permiso para crear asignaturas');
-                }
-                throw subjectError;
+                console.error('Error al crear materia:', subjectError);
+                throw new Error('Error al crear la materia. Por favor, intente nuevamente.');
             }
 
-            console.log('Asignatura creada exitosamente:', subject);
+            console.log('Materia creada exitosamente:', subject);
 
             // Si hay una URL de sílabo, actualizar la asignatura
             if (subjectData.syllabus_url) {
@@ -153,14 +118,6 @@ class SubjectService {
             console.error('Error en createSubject:', error);
             throw error;
         }
-    }
-
-    generateCode(name) {
-        // Tomar las primeras tres letras de cada palabra y convertirlas a mayúsculas
-        return name
-            .split(' ')
-            .map(word => word.substring(0, 3).toUpperCase())
-            .join('');
     }
 
     async deleteSubject(subjectId, professorId) {

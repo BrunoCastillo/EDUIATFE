@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { authService } from '../../services/auth.service';
+import { useAuth } from '../../contexts/AuthContext';
 
 const Register = () => {
     const navigate = useNavigate();
@@ -29,6 +30,13 @@ const Register = () => {
         setSuccess('');
         setLoading(true);
 
+        // Validaciones del formulario
+        if (!formData.email || !formData.password || !formData.confirmPassword || !formData.fullName) {
+            setError('Todos los campos son requeridos');
+            setLoading(false);
+            return;
+        }
+
         // Validar contraseñas
         if (formData.password !== formData.confirmPassword) {
             setError('Las contraseñas no coinciden');
@@ -36,21 +44,33 @@ const Register = () => {
             return;
         }
 
+        // Validar longitud de contraseña
+        if (formData.password.length < 6) {
+            setError('La contraseña debe tener al menos 6 caracteres');
+            setLoading(false);
+            return;
+        }
+
         try {
-            await authService.register(
+            const result = await authService.register(
                 formData.email,
                 formData.password,
                 formData.fullName,
                 formData.role
             );
-            setSuccess('¡Usuario registrado exitosamente! Redirigiendo al inicio de sesión...');
-            
-            // Redirigir al login después de 2 segundos usando React Router
-            setTimeout(() => {
-                navigate('/login');
-            }, 2000);
+
+            if (result?.user) {
+                setSuccess('¡Usuario registrado exitosamente! Por favor, verifica tu correo electrónico.');
+                // Redirigir al login después de 3 segundos
+                setTimeout(() => {
+                    navigate('/login');
+                }, 3000);
+            } else {
+                setError('Error al registrar usuario. Por favor, intenta nuevamente.');
+            }
         } catch (error) {
-            setError(error.message);
+            console.error('Error en registro:', error);
+            setError(error.message || 'Error al registrar usuario. Por favor, intenta nuevamente.');
         } finally {
             setLoading(false);
         }

@@ -20,9 +20,6 @@ const PDFUpload = ({ subjectId, session: sessionProp }) => {
     const [pageNumber, setPageNumber] = useState(1);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
-    const [processedJSON, setProcessedJSON] = useState(null);
-    const [isProcessing, setIsProcessing] = useState(false);
-    const [showJSON, setShowJSON] = useState(false);
     const [uploadedFiles, setUploadedFiles] = useState([]);
     const [activeTab, setActiveTab] = useState('files');
     const [user, setUser] = useState(null);
@@ -42,25 +39,6 @@ const PDFUpload = ({ subjectId, session: sessionProp }) => {
         }
     };
 
-    const handleProcess = async () => {
-        if (!file) {
-            setError('Por favor, selecciona un archivo PDF');
-            return;
-        }
-
-        setIsProcessing(true);
-        try {
-            const jsonResult = await nlpService.processPDF(file, subjectId);
-            setProcessedJSON(jsonResult);
-            setError(null);
-        } catch (err) {
-            console.error('Error al procesar el PDF:', err);
-            setError('Error al procesar el PDF: ' + err.message);
-        } finally {
-            setIsProcessing(false);
-        }
-    };
-
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (!file || !title) {
@@ -71,32 +49,23 @@ const PDFUpload = ({ subjectId, session: sessionProp }) => {
         setLoading(true);
         setError(null);
         setQuestionLogs([]);
-        setGeneratedQuestions([]);
 
         try {
-            // Primero subir el archivo
-            const formData = new FormData();
-            formData.append('file', file);
-
-            const uploadResponse = await fetch('http://localhost:3001/upload', {
-                method: 'POST',
-                body: formData
+            // Convertir el archivo PDF a base64
+            const toBase64 = file => new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => resolve(reader.result.split(',')[1]); // Solo la parte base64
+                reader.onerror = error => reject(error);
             });
+            const fileBase64 = await toBase64(file);
 
-            if (!uploadResponse.ok) {
-                const errorData = await uploadResponse.json();
-                throw new Error(`Error al subir el archivo: ${errorData.error || uploadResponse.statusText}`);
-            }
-
-            const { fileUrl, filePath } = await uploadResponse.json();
-
-            // Luego guardar la información en la base de datos
+            // Guardar la información en la base de datos
             const fileData = {
                 title,
                 subject_id: subjectId,
                 user_id: sessionProp.user.id,
-                file_path: filePath,
-                file_url: fileUrl,
+                file_base64: fileBase64,
                 file_name: file.name,
                 file_type: file.type,
                 file_size: file.size
@@ -121,52 +90,27 @@ const PDFUpload = ({ subjectId, session: sessionProp }) => {
             const responseData = await dbResponse.json();
             console.log('Respuesta del servidor:', responseData);
 
-            // === Generar preguntas ===
-            setQuestionLogs([{ fileName: file.name, status: 'generando', message: 'Generando preguntas para ' + file.name + '...' }]);
-            try {
-                // Extraer texto del PDF
-                const text = await syllabusService.extractTextFromFile(file);
-                // Construir objeto de tema único
-                const topics = [{ number: 1, title: file.name, content: text, subtopics: [] }];
-                // Generar preguntas
-                const questions = await deepseekService.generateQuestions(topics);
-                // Guardar preguntas en la base de datos
-                const questionsToInsert = questions.map(q => ({
-                    subject_id: subjectId,
-                    topic_id: null,
-                    question_text: q.question,
-                    option_a: q.options.a,
-                    option_b: q.options.b,
-                    option_c: q.options.c,
-                    option_d: q.options.d,
-                    correct_answer: q.correct_answer,
-                    explanation: q.explanation
-                }));
-                const { data, error } = await supabase
-                    .from('subject_questions')
-                    .insert(questionsToInsert)
-                    .select();
-                if (error) {
-                    setQuestionLogs(prev => ([...prev, { fileName: file.name, status: 'error', message: 'Error al guardar preguntas: ' + error.message }]));
-                    throw error;
-                }
-                setGeneratedQuestions([{ fileName: file.name, questions: data }]);
-                setQuestionLogs(prev => ([...prev, { fileName: file.name, status: 'exito', message: '¡Preguntas generadas y guardadas para ' + file.name + '!' }]));
-            } catch (err) {
-                setQuestionLogs(prev => ([...prev, { fileName: file.name, status: 'error', message: 'Error al generar preguntas: ' + (err.message || err) }]));
-            }
-
-            // Limpiar el formulario
-            setFile(null);
-            setTitle('');
-            setUploadedFileUrl(null);
-            setError(null);
             alert('Archivo subido exitosamente');
             setUploadedFiles(prevFiles => [...prevFiles, {
                 title: title,
                 fileName: file.name,
                 id: responseData.id
             }]);
+
+            // Procesamiento del PDF (opcional)
+            try {
+                await nlpService.processPDF(file, subjectId);
+                console.log('Procesamiento del PDF completado.');
+            } catch (processError) {
+                console.error('Error durante el procesamiento del PDF:', processError);
+                setQuestionLogs(prev => ([...prev, { fileName: file.name, status: 'error', message: 'Error durante el procesamiento del PDF: ' + (processError.message || processError) }]));
+            }
+
+            // Limpiar el formulario
+            setFile(null);
+            setTitle('');
+            setUploadedFileUrl(null);
+
         } catch (err) {
             console.error('Error completo:', err);
             setError(err.message);
@@ -181,11 +125,15 @@ const PDFUpload = ({ subjectId, session: sessionProp }) => {
     };
 
     useEffect(() => {
-        if (user && (activeTab === 'files' || activeTab === 'chat')) {
-            fetchSubjects();
-            checkSession();
-        }
-    }, [user, activeTab]);
+        // Asegurarse de que fetchSubjects y checkSession se llamen solo una vez o cuando sea necesario
+        // Esta lógica de useEffect parece ser para el Dashboard general, no específica de PDFUpload.
+        // Si PDFUpload se usa dentro del Dashboard, es probable que esta lógica deba estar en el padre.
+        // Si no, asegúrate de que user esté definido correctamente.
+        // if (user && (activeTab === 'files' || activeTab === 'chat')) {
+        //     fetchSubjects();
+        //     checkSession();
+        // }
+    }, [user, activeTab]); // Dependencias: user, activeTab - si estas no cambian, el efecto solo se ejecuta una vez si se renderiza condicionalmente.
 
     return (
         <div className="pdf-upload-container">
@@ -212,25 +160,10 @@ const PDFUpload = ({ subjectId, session: sessionProp }) => {
                     />
                 </div>
                 {error && <div className="error">{error}</div>}
-                <button type="submit" disabled={loading}>
-                    {loading ? 'Subiendo...' : 'Subir PDF'}
+                <button type="submit" disabled={loading || !file || !title}>
+                    {loading ? 'Subiendo y procesando...' : 'Subir y Procesar PDF'}
                 </button>
             </form>
-
-            <button 
-                onClick={handleProcess} 
-                disabled={!file || isProcessing}
-                className="process-button"
-            >
-                {isProcessing ? 'Procesando...' : 'Procesar PDF'}
-            </button>
-
-            {processedJSON && (
-                <div className="json-viewer">
-                    <h4>Resultado del Procesamiento</h4>
-                    <pre>{JSON.stringify(processedJSON, null, 2)}</pre>
-                </div>
-            )}
 
             {uploadedFiles.length > 0 && (
                 <div className="uploaded-files">
@@ -240,31 +173,10 @@ const PDFUpload = ({ subjectId, session: sessionProp }) => {
                             <span>{uploadedFile.title}</span>
                             <div className="file-actions">
                                 <button className="action-button view-button">Ver</button>
-                                <button 
-                                    className="action-button process-button"
-                                    onClick={() => handleProcess()}
-                                    disabled={isProcessing}
-                                >
-                                    {isProcessing ? 'Procesando...' : 'Procesar'}
-                                </button>
-                                <button 
-                                    className="action-button json-button"
-                                    onClick={() => setShowJSON(!showJSON)}
-                                    disabled={!processedJSON}
-                                >
-                                    {showJSON ? 'Ocultar JSON' : 'Ver JSON'}
-                                </button>
                                 <button className="action-button delete-button">Eliminar</button>
                             </div>
                         </div>
                     ))}
-                </div>
-            )}
-
-            {showJSON && processedJSON && (
-                <div className="json-viewer">
-                    <h4>Resultado del Procesamiento</h4>
-                    <pre>{JSON.stringify(processedJSON, null, 2)}</pre>
                 </div>
             )}
 
@@ -287,7 +199,6 @@ const PDFUpload = ({ subjectId, session: sessionProp }) => {
                 </div>
             )}
 
-            {/* Mostrar logs visuales del proceso de generación de preguntas */}
             {questionLogs.length > 0 && (
                 <div className="question-logs" style={{marginTop:'1.5rem'}}>
                     <h4>Estado de generación de preguntas:</h4>
@@ -301,7 +212,6 @@ const PDFUpload = ({ subjectId, session: sessionProp }) => {
                 </div>
             )}
 
-            {/* Mostrar preguntas generadas */}
             {generatedQuestions.length > 0 && (
                 <div className="questions-grid" style={{marginTop:'2rem'}}>
                     <h3>Preguntas de evaluación generadas</h3>

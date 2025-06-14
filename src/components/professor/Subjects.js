@@ -1,9 +1,15 @@
 import React, { useState, useEffect } from 'react';
+import { useAuth } from '../../contexts/AuthContext';
 import { subjectService } from '../../services/subject.service';
 import SubjectForm from './SubjectForm';
 import './Subjects.css';
+import { supabase } from '../../config/supabaseClient';
 
-export const Subjects = ({ professorId }) => {
+console.log('[Subjects] Archivo Subjects.js cargado');
+
+export const Subjects = () => {
+    const { user, session } = useAuth();
+    const professorId = user?.id;
     const [subjects, setSubjects] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -11,15 +17,38 @@ export const Subjects = ({ professorId }) => {
     const [notification, setNotification] = useState(null);
     const [editingSubject, setEditingSubject] = useState(null);
 
+    // Log de depuración en cada render
+    console.log('[Subjects] Render:', { session, user, professorId, loading, error, subjects });
+
     useEffect(() => {
+        if (!session || !user) {
+            setError('No hay una sesión activa. Por favor, inicia sesión nuevamente.');
+            setLoading(false);
+            return;
+        }
+        if (!professorId) {
+            setError('No se encontró el identificador del profesor. Por favor, recarga la página o contacta soporte.');
+            setLoading(false);
+            console.error('professorId inválido:', professorId);
+            return;
+        }
+        // Limpiar error si la sesión y el usuario existen
+        setError(null);
+        setLoading(true);
         loadSubjects();
-    }, [professorId]);
+    }, [professorId, session, user]);
 
     const loadSubjects = async () => {
         try {
-            setLoading(true);
-            setError(null);
             const data = await subjectService.getSubjects(professorId);
+            console.log('[Subjects] Respuesta de getSubjects:', data);
+            if (!Array.isArray(data)) {
+                setError('La respuesta de asignaturas no es válida.');
+                setSubjects([]);
+                setLoading(false);
+                console.error('Respuesta inesperada de getSubjects:', data);
+                return;
+            }
             setSubjects(data);
         } catch (error) {
             console.error('Error al cargar asignaturas:', error);
@@ -32,10 +61,12 @@ export const Subjects = ({ professorId }) => {
     const handleCreateSubject = async (subjectData) => {
         try {
             setError(null);
-            // Asegurarse de que el professorId esté incluido
+            if (!user || !user.id) {
+                throw new Error('No hay un usuario autenticado. Por favor, inicia sesión nuevamente.');
+            }
             const dataWithProfessor = {
                 ...subjectData,
-                professor_id: professorId
+                professor_id: user.id
             };
             console.log('Creando asignatura con datos:', dataWithProfessor);
             const newSubject = await subjectService.createSubject(dataWithProfessor);
@@ -79,21 +110,44 @@ export const Subjects = ({ professorId }) => {
     };
 
     const handleDeleteSubject = async (subjectId) => {
+        // Mostrar diálogo de confirmación
+        const confirmDelete = window.confirm(
+            '¿Estás seguro de que deseas eliminar esta asignatura? ' +
+            'Esta acción eliminará todos los documentos asociados y no se puede deshacer.'
+        );
+
+        if (!confirmDelete) {
+            return;
+        }
+
         try {
-            setError(null);
-            await subjectService.deleteSubject(subjectId);
-            setSubjects(subjects.filter(subject => subject.id !== subjectId));
-            setNotification({
-                type: 'success',
-                message: 'Asignatura eliminada exitosamente'
-            });
+            // Primero eliminar todos los documentos asociados
+            const { error: documentsError } = await supabase
+                .from('files')
+                .delete()
+                .eq('subject_id', subjectId);
+
+            if (documentsError) {
+                console.error('Error al eliminar documentos:', documentsError);
+                throw new Error('Error al eliminar los documentos asociados');
+            }
+
+            // Luego eliminar la asignatura
+            const { error: subjectError } = await subjectService.deleteSubject(subjectId);
+            
+            if (subjectError) {
+                console.error('Error al eliminar asignatura:', subjectError);
+                throw new Error('Error al eliminar la asignatura');
+            }
+
+            // Actualizar la lista de asignaturas
+            fetchSubjects();
+            
+            // Mostrar mensaje de éxito
+            alert('Asignatura eliminada exitosamente');
         } catch (error) {
             console.error('Error al eliminar asignatura:', error);
-            setError('Error al eliminar la asignatura. Por favor, intente nuevamente.');
-            setNotification({
-                type: 'error',
-                message: 'Error al eliminar la asignatura'
-            });
+            alert('Error al eliminar la asignatura: ' + error.message);
         }
     };
 
@@ -103,7 +157,24 @@ export const Subjects = ({ professorId }) => {
     };
 
     if (loading) {
-        return <div className="loading">Cargando asignaturas...</div>;
+        return (
+            <div className="loading">
+                Cargando Materias...
+                {error && <div className="error-message">{error}</div>}
+                <button className="add-subject-button" onClick={() => setShowForm(true)}>
+                    Crear Nueva Asignatura
+                </button>
+            </div>
+        );
+    }
+
+    // Mostrar error de sesión solo si NO hay sesión
+    if (!session) {
+        return (
+            <div className="error-message">
+                No hay una sesión activa. Por favor, inicia sesión nuevamente.
+            </div>
+        );
     }
 
     return (
@@ -133,6 +204,7 @@ export const Subjects = ({ professorId }) => {
                 </button>
             </div>
 
+            {/* Mostrar otros errores solo si hay sesión */}
             {error && <div className="error-message">{error}</div>}
 
             {showForm && (

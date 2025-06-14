@@ -2,13 +2,12 @@
   "name": "asistente-educativo",
   "version": "1.0.0",
   "description": "Asistente Educativo Inteligente",
-  "main": "server.js",
+  "main": "index.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject",
-    "vercel-build": "npm run build"
+    "eject": "react-scripts eject"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",
@@ -17,10 +16,11 @@
     "express": "^5.1.0",
     "mammoth": "^1.9.0",
     "multer": "^2.0.0",
-    "pdfjs-dist": "^3.11.174",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "3.4.120",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-pdf": "^7.7.0",
+    "react-pdf": "7.1.2",
     "react-router-dom": "^6.20.0",
     "react-scripts": "5.0.1"
   },
@@ -39,8 +39,5 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
-  },
-  "engines": {
-    "node": ">=18.0.0"
   }
 }

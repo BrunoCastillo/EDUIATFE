@@ -1,75 +1,52 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../../config/supabaseClient';
+import { supabase, updateSession } from '../../config/supabaseClient';
 import { syllabusService } from '../../services/syllabus.service';
+import { useAuth } from '../../context/auth_context';
 import './SyllabusUpload.css';
 
-const SyllabusUpload = ({ subjectId, setSubjectId, subjects, session: sessionProp }) => {
+const SyllabusUpload = ({ subjectId, setSubjectId, subjects }) => {
+    const { user, session } = useAuth();
     const [files, setFiles] = useState([]);
     const [uploadedFiles, setUploadedFiles] = useState([]);
     const [error, setError] = useState(null);
     const [uploading, setUploading] = useState(false);
     const [progress, setProgress] = useState({});
-    const [session, setSession] = useState(sessionProp || null);
-    const [isAuthenticated, setIsAuthenticated] = useState(!!sessionProp);
     const [processingStatus, setProcessingStatus] = useState({});
     const [extractedTopics, setExtractedTopics] = useState([]);
     const [saveStatus, setSaveStatus] = useState(null);
     const [generatedQuestions, setGeneratedQuestions] = useState([]);
     const [isGeneratingQuestions, setIsGeneratingQuestions] = useState(false);
-    const [questionsStatus, setQuestionsStatus] = useState(null);
+    const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        if (sessionProp) {
-            setSession(sessionProp);
-            setIsAuthenticated(!!sessionProp);
-        } else {
-            checkAuth();
-        }
+        setIsLoading(false);
         fetchUploadedFiles();
-    }, [subjectId, sessionProp]);
-
-    const checkAuth = async () => {
-        try {
-            const { data: { session }, error } = await supabase.auth.getSession();
-            if (error) throw error;
-            setIsAuthenticated(!!session);
-        } catch (error) {
-            console.error('Error checking auth:', error);
-            setIsAuthenticated(false);
-        }
-    };
+    }, [subjectId, session]);
 
     const fetchUploadedFiles = async () => {
         if (!subjectId) {
             setUploadedFiles([]);
             return;
         }
-
         try {
-            // Primero obtenemos los sílabos
             const { data: syllabusData, error: syllabusError } = await supabase
                 .from('syllabus')
                 .select('*')
                 .eq('subject_id', subjectId)
                 .order('created_at', { ascending: false });
-
             if (syllabusError) throw syllabusError;
-
-            // Luego obtenemos los temas para cada sílabo
             const syllabusWithTopics = await Promise.all(
                 (syllabusData || []).map(async (syllabus) => {
                     const { data: topicsData } = await supabase
                         .from('syllabus_topics')
                         .select('*')
                         .eq('subject_id', syllabus.subject_id);
-
                     return {
                         ...syllabus,
                         syllabus_topics: topicsData || []
                     };
                 })
             );
-
             setUploadedFiles(syllabusWithTopics);
             setError(null);
         } catch (error) {
@@ -80,7 +57,7 @@ const SyllabusUpload = ({ subjectId, setSubjectId, subjects, session: sessionPro
     };
 
     const handleFileChange = (event) => {
-        if (!isAuthenticated) {
+        if (!user || !session) {
             setError('Debes iniciar sesión para subir archivos');
             return;
         }
@@ -112,7 +89,8 @@ const SyllabusUpload = ({ subjectId, setSubjectId, subjects, session: sessionPro
             return;
         }
 
-        setFiles(prevFiles => [...prevFiles, ...validFiles]);
+        // Actualizar el estado de los archivos
+        setFiles(validFiles);
         setError(null);
     };
 
@@ -121,7 +99,7 @@ const SyllabusUpload = ({ subjectId, setSubjectId, subjects, session: sessionPro
     };
 
     const handleUpload = async () => {
-        if (!isAuthenticated) {
+        if (!user || !session) {
             setError('Debes iniciar sesión para subir archivos');
             return;
         }
@@ -152,12 +130,9 @@ const SyllabusUpload = ({ subjectId, setSubjectId, subjects, session: sessionPro
                         ...prev, 
                         [file.name]: `Error: ${error.message}` 
                     }));
+                    throw error;
                 }
             }
-
-            setFiles([]);
-            setProgress({});
-            setProcessingStatus({});
         } catch (error) {
             console.error('Error uploading files:', error);
             setError(error.message || 'Error al procesar los archivos');
@@ -167,7 +142,7 @@ const SyllabusUpload = ({ subjectId, setSubjectId, subjects, session: sessionPro
     };
 
     const handleDelete = async (fileId) => {
-        if (!isAuthenticated) {
+        if (!user || !session) {
             setError('Debes iniciar sesión para eliminar archivos');
             return;
         }
@@ -195,43 +170,69 @@ const SyllabusUpload = ({ subjectId, setSubjectId, subjects, session: sessionPro
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     };
 
-    // Guardar en base de datos los temas y subtemas extraídos por IA
     const handleSaveToDB = async () => {
-        if (!extractedTopics.length || !subjectId) return;
-        setSaveStatus('guardando');
         try {
-            // Guardar temas y subtemas
+            setError(null);
+            setIsLoading(true);
+
+            // Verificar que haya temas
+            if (extractedTopics.length === 0) {
+                setError('Debe agregar al menos un tema');
+                return;
+            }
+
+            // Verificar que cada tema tenga al menos un subtema
+            const hasEmptyTopics = extractedTopics.some(topic => 
+                !topic.subtopics || topic.subtopics.length === 0
+            );
+
+            if (hasEmptyTopics) {
+                setError('Cada tema debe tener al menos un subtema');
+                return;
+            }
+
+            // Guardar temas
+            const { data: savedTopics, error: topicsError } = await supabase
+                .from('syllabus_topics')
+                .insert(extractedTopics.map(topic => ({
+                    subject_id: subjectId,
+                    topic_number: topic.number,
+                    title: topic.title,
+                    description: topic.content || ''
+                })))
+                .select();
+
+            if (topicsError) {
+                console.error('Error al guardar los temas:', topicsError);
+                throw new Error('Error al guardar los temas del sílabo');
+            }
+
+            // Guardar subtemas
             for (const topic of extractedTopics) {
-                // Insertar tema
-                const { data: topicData, error: topicError } = await supabase
-                    .from('syllabus_topics')
-                    .insert([{
-                        subject_id: subjectId,
-                        topic_number: topic.number,
-                        title: topic.title,
-                        description: topic.content || ''
-                    }])
-                    .select()
-                    .single();
-                if (topicError) throw topicError;
-                // Insertar subtemas
-                if (topic.subtopics && topic.subtopics.length > 0) {
-                    const subtopicsToInsert = topic.subtopics.map(sub => ({
-                        topic_id: topicData.id,
-                        subtopic_number: sub.number,
-                        title: sub.title,
-                        description: sub.content || ''
-                    }));
-                    const { error: subtopicError } = await supabase
-                        .from('syllabus_subtopics')
-                        .insert(subtopicsToInsert);
-                    if (subtopicError) throw subtopicError;
+                const { data: savedSubtopics, error: subtopicError } = await supabase
+                    .from('syllabus_subtopics')
+                    .insert(topic.subtopics.map(subtopic => ({
+                        topic_id: savedTopics.find(t => t.topic_number === topic.number).id,
+                        subtopic_number: subtopic.number,
+                        title: subtopic.title,
+                        description: subtopic.content || ''
+                    })))
+                    .select();
+
+                if (subtopicError) {
+                    console.error('Error al guardar el subtema:', subtopicError);
+                    throw new Error(`Error al guardar los subtemas del tema ${topic.number}`);
                 }
             }
-            setSaveStatus('exito');
+
+            setSaveStatus('success');
+            setError(null);
         } catch (error) {
+            console.error('Error al guardar el sílabo:', error);
+            setError(error.message || 'Error al guardar el sílabo');
             setSaveStatus('error');
-            setError('Error al guardar en base de datos: ' + (error.message || error));
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -239,31 +240,33 @@ const SyllabusUpload = ({ subjectId, setSubjectId, subjects, session: sessionPro
         if (!extractedTopics.length || !subjectId) return;
         
         setIsGeneratingQuestions(true);
-        setQuestionsStatus('generando');
         try {
             const questions = await syllabusService.generateAndSaveQuestions(subjectId, extractedTopics);
             setGeneratedQuestions(questions);
-            setQuestionsStatus('exito');
         } catch (error) {
             console.error('Error generando preguntas:', error);
-            setQuestionsStatus('error');
             setError('Error al generar preguntas: ' + error.message);
         } finally {
             setIsGeneratingQuestions(false);
         }
     };
 
-    // Loader si la sesión aún no está definida
-    if (sessionProp === undefined) {
-        return <div className="syllabus-upload-container">Cargando...</div>;
+    // Modificar el renderizado para mostrar el estado de carga
+    if (isLoading) {
+        return <div className="syllabus-upload-container">Verificando autenticación...</div>;
     }
 
-    // Si no está autenticado, mostrar error
-    if (!isAuthenticated) {
+    if (!user || !session) {
         return (
             <div className="syllabus-upload-container">
                 <div className="error-message">
                     Debes iniciar sesión para subir y gestionar archivos.
+                    <button 
+                        onClick={() => supabase.auth.signInWithOAuth({ provider: 'google' })}
+                        className="login-button"
+                    >
+                        Iniciar Sesión
+                    </button>
                 </div>
             </div>
         );
@@ -478,8 +481,6 @@ const SyllabusUpload = ({ subjectId, setSubjectId, subjects, session: sessionPro
                     </div>
                     {saveStatus==='exito' && <div style={{color:'green',marginTop:'1rem'}}>¡Temas y subtemas guardados correctamente!</div>}
                     {saveStatus==='error' && <div style={{color:'red',marginTop:'1rem'}}>Ocurrió un error al guardar en base de datos.</div>}
-                    {questionsStatus==='exito' && <div style={{color:'green',marginTop:'1rem'}}>¡Preguntas generadas y guardadas correctamente!</div>}
-                    {questionsStatus==='error' && <div style={{color:'red',marginTop:'1rem'}}>Error al generar preguntas.</div>}
                 </div>
             )}
 

@@ -7,9 +7,11 @@ import ProfessorDashboard from './components/professor/Dashboard';
 import StudentDashboard from './components/student/Dashboard';
 import IntroScreen from './components/IntroScreen';
 import './styles/auth.css';
+import { AuthProvider } from './contexts/AuthContext';
 
 function App() {
   return (
+    <AuthProvider>
     <Router>
       <Routes>
         <Route path="/" element={<IntroScreen role="estudiante" />} />
@@ -20,6 +22,7 @@ function App() {
         <Route path="/student/dashboard" element={<StudentDashboard />} />
       </Routes>
     </Router>
+    </AuthProvider>
   );
 }
 

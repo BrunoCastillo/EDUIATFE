@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../config';
 import { deepseekService } from '../../services/deepseek.service';
 import { ragService } from '../../services/rag.service';
@@ -12,127 +13,42 @@ import './Dashboard.css';
 
 const Dashboard = () => {
     const navigate = useNavigate();
-    const [user, setUser] = useState(null);
-    const [loading, setLoading] = useState(true);
+    const { user, session, loading: authLoading, logout } = useAuth();
     const [activeTab, setActiveTab] = useState('subjects');
     const [chatMessage, setChatMessage] = useState('');
     const [chatHistory, setChatHistory] = useState([]);
     const [isProcessing, setIsProcessing] = useState(false);
     const [subjects, setSubjects] = useState([]);
     const [selectedSubjectId, setSelectedSubjectId] = useState('');
-    const [session, setSession] = useState(null);
     const [ragChatMessage, setRagChatMessage] = useState('');
     const [ragChatHistory, setRagChatHistory] = useState([]);
     const [isRagProcessing, setIsRagProcessing] = useState(false);
 
     useEffect(() => {
-        checkUser();
-        checkSession();
-    }, []);
+        if (!authLoading && !user) {
+            navigate('/login');
+        }
+    }, [authLoading, user, navigate]);
 
     useEffect(() => {
         if (user) {
-            console.log('[Dashboard] Usuario cargado:', user);
             fetchSubjects();
         }
     }, [user]);
 
-    const checkUser = async () => {
-        try {
-            const { data: { user } } = await supabase.auth.getUser();
-            console.log('[Dashboard] Usuario obtenido:', user);
-            if (!user) {
-                console.warn('[Dashboard] No hay usuario autenticado, redirigiendo a login');
-                navigate('/login');
-                return;
-            }
-            setUser({
-                id: user.id,
-                email: user.email,
-                full_name: user.user_metadata?.full_name || user.email.split('@')[0]
-            });
-        } catch (error) {
-            console.error('[Dashboard] Error al verificar usuario:', error);
-            navigate('/login');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const checkSession = async () => {
-        try {
-            const { data: { session }, error } = await supabase.auth.getSession();
-            if (error) {
-                console.error('[Dashboard] Error al obtener sesión:', error);
-                setSession(null);
-                return;
-            }
-            console.log('[Dashboard] Estado de la sesión:', session);
-            setSession(session);
-        } catch (error) {
-            console.error('[Dashboard] Error al verificar sesión:', error);
-            setSession(null);
-        }
-    };
-
     const fetchSubjects = async () => {
         try {
-            console.log('[Dashboard] Iniciando carga de materias...');
-            console.log('[Dashboard] ID del profesor:', user?.id);
-            
             const { data, error } = await supabase
                 .from('subjects')
                 .select('*')
                 .eq('professor_id', user.id)
                 .order('created_at', { ascending: false });
-
-            if (error) {
-                console.error('[Dashboard] Error al cargar materias:', error);
-                throw error;
-            }
-
-            console.log('[Dashboard] Materias cargadas:', data?.length || 0);
-            console.log('[Dashboard] Datos de materias:', data);
-            
             setSubjects(data || []);
             if (data && data.length > 0 && !selectedSubjectId) {
-                console.log('[Dashboard] Seleccionando primera materia:', data[0].id);
                 setSelectedSubjectId(data[0].id);
             }
         } catch (error) {
-            console.error('[Dashboard] Error al cargar materias:', error);
-        }
-    };
-
-    const handleLogout = async () => {
-        try {
-            await supabase.auth.signOut();
-            navigate('/login');
-        } catch (error) {
-            console.error('[Dashboard] Error al cerrar sesión:', error);
-        }
-    };
-
-    const handleSendMessage = async (e) => {
-        e.preventDefault();
-        if (!chatMessage.trim() || isProcessing) return;
-
-        const userMessage = chatMessage.trim();
-        setChatMessage('');
-        setChatHistory(prev => [...prev, { role: 'user', content: userMessage }]);
-        setIsProcessing(true);
-
-        try {
-            const response = await deepseekService.sendMessage(userMessage);
-            setChatHistory(prev => [...prev, { role: 'assistant', content: response }]);
-        } catch (error) {
-            console.error('[Dashboard] Error al enviar mensaje:', error);
-            setChatHistory(prev => [...prev, { 
-                role: 'assistant', 
-                content: 'Lo siento, ha ocurrido un error al procesar tu mensaje.' 
-            }]);
-        } finally {
-            setIsProcessing(false);
+            setSubjects([]);
         }
     };
 
@@ -146,24 +62,18 @@ const Dashboard = () => {
         setIsRagProcessing(true);
 
         try {
-            console.log('Enviando pregunta al asistente RAG:', userMessage);
-            console.log('Materia seleccionada:', selectedSubjectId);
-            
             // Validar que selectedSubjectId sea un UUID válido
             const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
             if (!uuidRegex.test(selectedSubjectId)) {
                 throw new Error('ID de materia inválido');
             }
-            
             const response = await ragService.processQuestion(userMessage, selectedSubjectId);
-            
             setRagChatHistory(prev => [...prev, { 
                 role: 'assistant', 
                 content: response.answer,
                 sources: response.sources
             }]);
         } catch (error) {
-            console.error('[Dashboard] Error al enviar mensaje al asistente RAG:', error);
             setRagChatHistory(prev => [...prev, { 
                 role: 'assistant', 
                 content: error.message || 'Lo siento, ha ocurrido un error al procesar tu mensaje.' 
@@ -173,7 +83,7 @@ const Dashboard = () => {
         }
     };
 
-    if (loading) {
+    if (authLoading) {
         return <div className="loading">Cargando...</div>;
     }
 
@@ -185,14 +95,13 @@ const Dashboard = () => {
         <div className="dashboard">
             <header className="dashboard-header">
                 <div className="user-info">
-                    <h1>Bienvenido, {user.full_name}</h1>
+                    <h1>Bienvenido, {user.full_name || user.email}</h1>
                     <p>{user.email}</p>
                 </div>
-                <button className="logout-button" onClick={handleLogout}>
+                <button className="logout-button" onClick={logout}>
                     Cerrar Sesión
                 </button>
             </header>
-
             <div className="dashboard-content">
                 <nav className="dashboard-nav">
                     <div className="nav-header">
@@ -233,14 +142,13 @@ const Dashboard = () => {
                             </button>
                         </li>
                     </ul>
-                    <button className="logout-button" onClick={handleLogout}>
+                    <button className="logout-button" onClick={logout}>
                         Cerrar Sesión
                     </button>
                 </nav>
-
                 <main className="dashboard-main">
                     {activeTab === 'subjects' && (
-                        <Subjects professorId={user.id} />
+                        <Subjects professorId={user.id} session={session} user={user} />
                     )}
                     {activeTab === 'chat' && (
                         <div className="chat-container">

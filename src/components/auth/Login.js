@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { authService } from '../../services/auth.service';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 
 const Login = () => {
     const [formData, setFormData] = useState({
@@ -8,6 +9,8 @@ const Login = () => {
     });
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+    const { signIn } = useAuth();
+    const navigate = useNavigate();
 
     const handleChange = (e) => {
         const { name, value } = e.target;
@@ -21,15 +24,18 @@ const Login = () => {
         e.preventDefault();
         setError('');
         setLoading(true);
-
         try {
-            const data = await authService.login(formData.email, formData.password);
+            const { data, error: loginError } = await signIn({
+                email: formData.email,
+                password: formData.password
+            });
+            if (loginError) throw new Error(loginError.message);
             // Redirigir según el rol del usuario
             const userRole = data.user.user_metadata.role;
             if (userRole === 'professor') {
-                window.location.href = '/professor/dashboard';
+                navigate('/professor/dashboard');
             } else {
-                window.location.href = '/student/dashboard';
+                navigate('/student/dashboard');
             }
         } catch (error) {
             setError(error.message);

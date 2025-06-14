@@ -56,27 +56,43 @@ class DeepSeekService {
             }));
             console.log('Generando preguntas para los temas (limitado):', limitedTopics);
             // Construir el prompt para generar preguntas
-            const prompt = `Basado en los siguientes temas y subtemas de un sílabo, genera 10 preguntas de opción múltiple (a, b, c, d) con sus respuestas correctas. 
-Cada pregunta debe estar relacionada con el contenido de los temas y debe tener 4 opciones de respuesta.
-Devuelve la respuesta en formato JSON, sin explicaciones ni texto adicional, y usa exactamente estas claves en inglés:
-{
-  "questions": [
-    {
-      "id": 1,
-      "question": "texto de la pregunta",
-      "options": {
-        "a": "opción a",
-        "b": "opción b",
-        "c": "opción c",
-        "d": "opción d"
-      },
-      "correct_answer": "a/b/c/d",
-      "topic_id": "número del tema relacionado",
-      "explanation": "explicación breve de por qué es la respuesta correcta"
-    }
-  ]
+            const prompt = `
+             * Generador de preguntas tipo test a partir de un documento educativo
+ *
+ * Objetivo:
+ * - Leer el contenido de un archivo educativo (PDF o texto plano ya extraído).
+ * - Identificar los conceptos o ideas más importantes del documento.
+ * - Generar 10 preguntas de opción múltiple basadas en esa información clave.
+ * - Para cada pregunta, generar cuatro opciones: a), b), c), d)
+ * - Indicar claramente cuál opción es la correcta.
+ * - Devolver todo el conjunto de preguntas y respuestas en formato JSON.
+ *
+ * Formato de salida esperado (JSON):
+ * [
+ *   {
+ *     "pregunta": "¿Cuál es la fórmula general para resolver ecuaciones cuadráticas?",
+ *     "opciones": {
+ *       "a": "x = (-b ± √(b² - 4ac)) / 2a",
+ *       "b": "x = b² - 4ac",
+ *       "c": "x = (b ± √(4ac)) / 2a",
+ *       "d": "x = (2a ± √(b² - 4ac)) / 2b"
+ *     },
+ *     "respuesta_correcta": "a"
+ *     "topic_id": "Titulo del tema relacionado",
+ *     "explanation": "explicación breve de por qué es la respuesta correcta"
+ *   },
+ *   ...
+ * ]
+ *
+ * Instrucciones adicionales:
+ * - Evita repetir temas en múltiples preguntas.
+ * - Asegúrate de que solo una opción sea correcta por pregunta.
+ * - Redacta las preguntas en un nivel adecuado para estudiantes.
+ * - Si el documento es muy largo, selecciona los fragmentos más relevantes.
+ *
+ * Idioma: Español
+ */
 }
-NO uses ninguna clave en español. NO incluyas texto fuera del JSON.
 
 Temas y subtemas:
 ${JSON.stringify(limitedTopics, null, 2)}`;
@@ -117,51 +133,13 @@ ${JSON.stringify(limitedTopics, null, 2)}`;
                     jsonMatch = [content.substring(first, last + 1)];
                 }
             }
-            // Reparar JSON truncado (cerrar array y objeto si es necesario)
-            if (jsonMatch) {
-                let fixed = jsonMatch[0];
-                // Si termina con una coma dentro del array, quitar la coma
-                fixed = fixed.replace(/,\s*\]$/, ']');
-                // Si falta el cierre del array o del objeto
-                if ((fixed.match(/\[/g) || []).length > (fixed.match(/\]/g) || []).length) {
-                    fixed += ']';
-                }
-                if ((fixed.match(/\{/g) || []).length > (fixed.match(/\}/g) || []).length) {
-                    fixed += '}';
-                }
-                jsonMatch[0] = fixed;
-            }
             if (!jsonMatch) {
                 console.error('No se pudo extraer el JSON. Respuesta bruta:', content);
                 throw new Error('No se pudo extraer el JSON de la respuesta de DeepSeek. Respuesta bruta: ' + content.slice(0, 1000));
             }
             try {
-                let questionsObj = JSON.parse(jsonMatch[0]);
-                // Si las claves están en español, mapearlas a inglés
-                if (questionsObj.questions === undefined && Array.isArray(questionsObj)) {
-                    questionsObj = { questions: questionsObj };
-                }
-                if (!questionsObj.questions && Array.isArray(questionsObj)) {
-                    questionsObj = { questions: questionsObj };
-                }
-                if (!questionsObj.questions && questionsObj.preguntas) {
-                    questionsObj.questions = questionsObj.preguntas;
-                }
-                // Mapear claves de cada pregunta si están en español
-                questionsObj.questions = (questionsObj.questions || []).map((q, idx) => {
-                    // Si ya están en inglés, devolver tal cual
-                    if (q.question && q.options && q.correct_answer) return q;
-                    // Si están en español, mapear
-                    return {
-                        id: q.id || idx + 1,
-                        question: q.pregunta || q.question || '',
-                        options: q.opciones || q.options || {},
-                        correct_answer: q.respuesta_correcta || q.correct_answer || '',
-                        topic_id: q.topic_id || '',
-                        explanation: q.explanation || q.explicacion || q.explicación || ''
-                    };
-                });
-                return questionsObj.questions;
+                const questions = JSON.parse(jsonMatch[0]);
+                return questions.questions;
             } catch (err) {
                 console.error('Error al parsear JSON. Respuesta bruta:', jsonMatch[0]);
                 throw new Error('Error al parsear JSON de DeepSeek. Respuesta bruta: ' + jsonMatch[0].slice(0, 1000));

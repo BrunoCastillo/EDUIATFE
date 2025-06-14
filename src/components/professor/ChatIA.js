@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ragService } from '../../services/rag.service';
 import './ChatIA.css';
+import { useAuth } from '../../contexts/AuthContext';
 
 const ChatIA = ({ subjectId }) => {
     const [messages, setMessages] = useState([]);

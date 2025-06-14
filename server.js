@@ -7,8 +7,30 @@ const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 
 const app = express();
+
+// Configuración de CORS
 app.use(cors());
-app.use(express.json());
+
+// Configuración de límites de payload
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ limit: '100mb', extended: true }));
+
+// Middleware para manejar errores
+app.use((err, req, res, next) => {
+  console.error('Error en el servidor:', err);
+  
+  if (err.status === 413) {
+    return res.status(413).json({ 
+      error: 'Payload too large',
+      message: 'El archivo excede el tamaño máximo permitido'
+    });
+  }
+  
+  res.status(err.status || 500).json({ 
+    error: err.message || 'Error interno del servidor',
+    status: err.status || 500
+  });
+});
 
 // Supabase config desde variables de entorno
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -58,59 +80,40 @@ app.post('/upload', upload.single('file'), (req, res) => {
 // Función para verificar y actualizar la estructura de la tabla
 async function checkAndUpdateTableStructure() {
   try {
-    // Intentar crear la tabla si no existe
-    const { error: createError } = await supabase.rpc('create_files_table_if_not_exists');
-    
-    if (createError) {
-      console.error('Error al crear la tabla:', createError);
-      return false;
-    }
-
-    // Obtener la estructura actual de la tabla
-    const { data: tableInfo, error: tableError } = await supabase
+    // Verificar si la tabla existe
+    const { data: tableExists, error: tableError } = await supabase
       .from('files')
-      .select('*')
-      .limit(0);
+      .select('id')
+      .limit(1);
 
-    if (tableError) {
-      console.error('Error al obtener estructura de la tabla:', tableError);
-      return false;
-    }
-
-    console.log('Estructura actual de la tabla files:', Object.keys(tableInfo[0] || {}));
-
-    // Verificar si la tabla existe y tiene las columnas necesarias
-    const requiredColumns = [
-      'id',
-      'name',
-      'path',
-      'type',
-      'size',
-      'folder',
-      'subject_id',
-      'created_at',
-      'updated_at'
-    ];
-
-    const existingColumns = Object.keys(tableInfo[0] || {});
-    const missingColumns = requiredColumns.filter(col => !existingColumns.includes(col));
-
-    if (missingColumns.length > 0) {
-      console.log('Columnas faltantes:', missingColumns);
-      // Intentar agregar las columnas faltantes
-      const { error: alterError } = await supabase.rpc('add_missing_columns', {
-        missing_columns: missingColumns
-      });
-
-      if (alterError) {
-        console.error('Error al agregar columnas faltantes:', alterError);
+    if (tableError && tableError.code === '42P01') {
+      // La tabla no existe, crearla
+      const { error: createError } = await supabase.rpc('create_files_table');
+      if (createError) {
+        console.error('Error al crear la tabla:', createError);
         return false;
       }
     }
 
+    // Verificar y actualizar la estructura de la tabla
+    const { error: alterError } = await supabase.rpc('alter_files_table', {
+      new_columns: {
+        content: 'text',
+        type: 'text',
+        size: 'bigint',
+        folder: 'text',
+        subject_id: 'uuid'
+      }
+    });
+
+    if (alterError) {
+      console.error('Error al actualizar la estructura:', alterError);
+      return false;
+    }
+
     return true;
-  } catch (err) {
-    console.error('Error al verificar estructura de la tabla:', err);
+  } catch (error) {
+    console.error('Error al verificar/actualizar la estructura:', error);
     return false;
   }
 }
@@ -122,7 +125,7 @@ app.post('/api/files', async (req, res) => {
 
   const {
     title, subject_id, user_id,
-    file_path, file_url, file_name, file_type, file_size
+    file_base64, file_name, file_type, file_size
   } = req.body;
 
   try {
@@ -138,7 +141,7 @@ app.post('/api/files', async (req, res) => {
     // Preparar el objeto a insertar con los nombres correctos de las columnas
     const fileData = {
       name: title,
-      path: file_path,
+      content: file_base64, // Guardamos el contenido en base64
       type: file_type,
       size: file_size,
       folder: 'documents',
@@ -168,7 +171,10 @@ app.post('/api/files', async (req, res) => {
     }
 
     console.log('Archivo guardado exitosamente:', data);
-    res.json({ success: true, file: data });
+    res.json({ 
+      success: true, 
+      file: data
+    });
   } catch (err) {
     console.error('Error completo en /api/files:', err);
     res.status(500).json({ 

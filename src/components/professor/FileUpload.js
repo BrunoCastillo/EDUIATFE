@@ -7,6 +7,7 @@ import 'react-pdf/dist/esm/Page/TextLayer.css';
 import './FileUpload.css';
 import { syllabusService } from '../../services/syllabus.service';
 import { deepseekService } from '../../services/deepseek.service';
+import { ragService } from '../../services/rag.service';
 
 // Configurar el worker de PDF.js con la versión compatible
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js`;
@@ -31,6 +32,8 @@ const FileUpload = ({ subjectId, session: sessionProp }) => {
     const [questionsStatus, setQuestionsStatus] = useState(null);
     const [questionsError, setQuestionsError] = useState(null);
     const [questionLogs, setQuestionLogs] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [notification, setNotification] = useState(null);
 
     useEffect(() => {
         checkAuth();
@@ -86,6 +89,7 @@ const FileUpload = ({ subjectId, session: sessionProp }) => {
                 throw error;
             }
             console.log('Archivos obtenidos:', data);
+            console.log('Consulta ejecutada:', { subjectId, archivosEncontrados: data?.length || 0, primerArchivo: data?.[0] });
             setUploadedFiles(data || []);
         } catch (error) {
             console.error('Error al cargar archivos:', error);
@@ -124,6 +128,70 @@ const FileUpload = ({ subjectId, session: sessionProp }) => {
 
     const removeFile = (index) => {
         setFiles(prevFiles => prevFiles.filter((_, i) => i !== index));
+    };
+
+    const handleFileUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        try {
+            setLoading(true);
+            setError(null);
+
+            // 1. Subir archivo a Supabase Storage
+            const fileExt = file.name.split('.').pop();
+            const fileName = `${Math.random()}.${fileExt}`;
+            const filePath = `${subjectId}/${fileName}`;
+
+            const { error: uploadError } = await supabase.storage
+                .from('documents')
+                .upload(filePath, file);
+
+            if (uploadError) throw uploadError;
+
+            // 2. Obtener URL pública
+            const { data: { publicUrl } } = supabase.storage
+                .from('documents')
+                .getPublicUrl(filePath);
+
+            // 3. Guardar referencia en la base de datos
+            const { data: document, error: dbError } = await supabase
+                .from('documents')
+                .insert([{
+                    subject_id: subjectId,
+                    file_name: file.name,
+                    file_path: filePath,
+                    file_url: publicUrl,
+                    file_type: file.type,
+                    file_size: file.size
+                }])
+                .select()
+                .single();
+
+            if (dbError) throw dbError;
+
+            // 4. Procesar el documento completo (embeddings + preguntas)
+            const result = await ragService.processDocument(file, subjectId);
+            console.log('Documento procesado:', result);
+
+            setNotification({
+                type: 'success',
+                message: `Documento subido y procesado exitosamente. Se generaron ${result.questionsCount} preguntas.`
+            });
+
+            // 5. Actualizar la lista de documentos
+            fetchDocuments();
+
+        } catch (error) {
+            console.error('Error al subir el archivo:', error);
+            setError(error.message);
+            setNotification({
+                type: 'error',
+                message: 'Error al subir el archivo: ' + error.message
+            });
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleUpload = async () => {

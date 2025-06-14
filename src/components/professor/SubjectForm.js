@@ -22,14 +22,6 @@ const SubjectForm = ({ onSubmit, onCancel, initialData }) => {
         }
     }, [initialData]);
 
-    const generateCode = (name) => {
-        const words = name.split(' ');
-        const code = words
-            .map(word => word.substring(0, 3).toUpperCase())
-            .join('');
-        return code;
-    };
-
     const handleChange = (e) => {
         const { name, value } = e.target;
         setFormData(prev => ({
@@ -48,10 +40,8 @@ const SubjectForm = ({ onSubmit, onCancel, initialData }) => {
         }
 
         try {
-            const code = generateCode(formData.name);
             const result = await onSubmit({
-                ...formData,
-                code
+                ...formData
             });
             
             if (result && result.id && !initialData) {
@@ -91,15 +81,12 @@ const SubjectForm = ({ onSubmit, onCancel, initialData }) => {
                             required
                             disabled={isSubjectCreated && !initialData}
                         />
-                        <small className="form-text">
-                            El código se generará automáticamente basado en el nombre
-                        </small>
                     </div>
                 </div>
 
                 {error && <div className="error-message">{error}</div>}
 
-                {(isSubjectCreated || subjectId) && (
+                {isSubjectCreated && (
                     <>
                         <div className="form-section">
                             <div className="success-message">
