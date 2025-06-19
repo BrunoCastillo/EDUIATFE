@@ -90,6 +90,7 @@ const Chat = () => {
 
     const handleSendMessage = async (e) => {
         e.preventDefault();
+        console.log('[Chat][DEBUG] handleSendMessage ejecutado. message:', message, 'selectedSubjectId:', selectedSubjectId);
         if (!message.trim() || isProcessing || !selectedSubjectId) return;
 
         const userMessage = message.trim();
@@ -98,18 +99,17 @@ const Chat = () => {
         setIsProcessing(true);
 
         try {
-            console.log('Enviando pregunta al asistente RAG:', userMessage);
-            console.log('Materia seleccionada:', selectedSubjectId);
-            
+            console.log('[Chat][DEBUG] Enviando pregunta al asistente RAG:', userMessage);
+            console.log('[Chat][DEBUG] Materia seleccionada:', selectedSubjectId);
             const response = await ragService.processQuestion(userMessage, selectedSubjectId);
-            
+            console.log('[Chat][DEBUG] Respuesta recibida de ragService:', response);
             setChatHistory(prev => [...prev, { 
                 role: 'assistant', 
                 content: response.answer,
                 sources: response.sources
             }]);
         } catch (error) {
-            console.error('Error al enviar mensaje:', error);
+            console.error('[Chat][ERROR] Error al enviar mensaje:', error);
             setChatHistory(prev => [...prev, { 
                 role: 'assistant', 
                 content: error.message || 'Lo siento, ha ocurrido un error al procesar tu mensaje.' 
@@ -204,7 +204,10 @@ const Chat = () => {
                 <input
                     type="text"
                     value={message}
-                    onChange={(e) => setMessage(e.target.value)}
+                    onChange={(e) => {
+                        setMessage(e.target.value);
+                        console.log('[Chat][DEBUG] onChange input:', e.target.value);
+                    }}
                     placeholder={selectedSubjectId ? "Escribe tu pregunta sobre la materia..." : "Selecciona una materia primero..."}
                     disabled={isProcessing || !selectedSubjectId}
                 />

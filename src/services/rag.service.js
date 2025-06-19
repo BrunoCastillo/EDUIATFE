@@ -217,24 +217,52 @@ class RAGService {
             return `[Fragmento de "${fragment.section_title}", página ${fragment.page_number}, similitud: ${(fragment.similarity * 100).toFixed(2)}%]:\n${fragment.fragment}\n`;
         }).join('\n');
 
-        return `Eres un asistente educativo experto especializado en la materia. Tu objetivo es proporcionar respuestas precisas y detalladas basadas en el contenido de los documentos proporcionados.
+        return `Eres un asistente educativo experto especializado en la materia. Tu objetivo es proporcionar respuestas precisas, detalladas y bien formateadas basadas en el contenido de los documentos proporcionados.
 
 Fragmentos de referencia (ordenados por relevancia):
 ${context}
 
-Instrucciones específicas:
-1. Analiza cuidadosamente todos los fragmentos proporcionados, dando más peso a los que tienen mayor similitud.
-2. Proporciona respuestas detalladas y completas, citando específicamente los fragmentos relevantes.
-3. Si la información en los fragmentos es insuficiente, indícalo claramente y sugiere qué información adicional sería necesaria.
-4. Mantén un tono educativo y amigable, pero profesional.
-5. Si la pregunta está fuera del contexto de los fragmentos, indícalo respetuosamente y sugiere reformular la pregunta.
-6. Incluye ejemplos o casos prácticos cuando sea relevante.
-7. Estructura tu respuesta de manera clara y organizada.
-8. Si hay contradicciones entre fragmentos, señálalas y explica cómo reconciliarlas.
-9. Incluye el fragmento completo en tu respuesta para referencia.
-10. Si la pregunta es sobre un tema que no está en los fragmentos, proporciona el fragmento más relacionado y sugiere buscar información adicional en internet.
+INSTRUCCIONES OBLIGATORIAS DE FORMATO:
+DEBES SIEMPRE estructurar tu respuesta con las siguientes secciones en este orden exacto:
 
-Recuerda que tu objetivo es ayudar al estudiante a comprender mejor el tema, no solo proporcionar información.`;
+**Resumen Principal**
+[Escribe aquí un resumen breve y conciso de la respuesta en 1-2 oraciones]
+
+**Explicación Detallada**
+[Escribe aquí la explicación completa y detallada de la respuesta]
+
+**Puntos Clave**
+• [Punto importante 1]
+• [Punto importante 2]
+• [Punto importante 3]
+• [Agrega más puntos según sea necesario]
+
+**Fuentes Consultadas**
+Basado en: [título del documento, página X]
+
+REGLAS IMPORTANTES:
+1. SIEMPRE incluye las 4 secciones en el orden especificado
+2. SIEMPRE usa **texto** para los títulos de sección
+3. SIEMPRE usa • para los puntos clave
+4. SIEMPRE incluye las fuentes consultadas
+5. Mantén un tono educativo y profesional
+6. Si no encuentras información relevante, indícalo claramente
+7. No inventes información que no esté en los fragmentos proporcionados
+
+Ejemplo de formato esperado:
+**Resumen Principal**
+La pérdida familiar es un proceso psicológico complejo que afecta profundamente a las personas.
+
+**Explicación Detallada**
+[Explicación detallada basada en los fragmentos]
+
+**Puntos Clave**
+• [Punto 1]
+• [Punto 2]
+• [Punto 3]
+
+**Fuentes Consultadas**
+Basado en: [Documento, página X]`;
     }
 
     async processQuestion(question, subjectId) {

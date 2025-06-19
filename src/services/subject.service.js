@@ -12,11 +12,11 @@ class SubjectService {
                         file_name
                     )
                 `)
-                .eq('professor_id', professorId)
-                .order('created_at', { ascending: false });
+                .eq('professor_id', professorId);
 
             if (error) throw error;
-            return data;
+            const sortedData = (data || []).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            return sortedData;
         } catch (error) {
             console.error('Error al obtener Materias:', error);
             throw error;
@@ -261,6 +261,52 @@ class SubjectService {
             return data.map(enrollment => enrollment.students);
         } catch (error) {
             console.error('Error al obtener los estudiantes inscritos:', error);
+            throw error;
+        }
+    }
+
+    async saveStudentProgress({ student_subject_id, document_id, status, completion_percentage, assessment_score, notes }) {
+        try {
+            const { data, error } = await supabase
+                .from('student_progress')
+                .insert([
+                    {
+                        student_subject_id,
+                        document_id,
+                        status,
+                        completion_percentage,
+                        assessment_score,
+                        notes,
+                        completion_date: new Date().toISOString(),
+                        last_activity: new Date().toISOString(),
+                    }
+                ])
+                .select()
+                .single();
+            if (error) throw error;
+            return data;
+        } catch (error) {
+            console.error('Error al guardar el progreso del estudiante:', error);
+            throw error;
+        }
+    }
+
+    async getStudentProgressByUser(userId) {
+        try {
+            const { data, error } = await supabase
+                .from('student_progress')
+                .select('student_subject_id, document_id, completion_percentage, assessment_score, completion_date')
+                .in('student_subject_id', (
+                    await supabase
+                        .from('students_subjects')
+                        .select('id')
+                        .eq('student_id', userId)
+                ).data.map(row => row.id)
+                );
+            if (error) throw error;
+            return data;
+        } catch (error) {
+            console.error('Error al obtener el progreso del estudiante:', error);
             throw error;
         }
     }

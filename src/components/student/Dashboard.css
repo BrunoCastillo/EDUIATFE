@@ -96,17 +96,26 @@
 }
 
 .stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 20px;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: stretch;
+    gap: 24px;
     margin-top: 20px;
+    width: 100%;
 }
 
 .stat-card {
     background-color: #f8f9fa;
-    padding: 20px;
+    padding: 24px 20px;
     border-radius: 8px;
     text-align: center;
+    flex: 1 1 0;
+    min-width: 180px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
 }
 
 .stat-card h4 {
@@ -222,13 +231,105 @@
 
 .message-content {
     margin-bottom: 0.5rem;
+    line-height: 1.6;
+}
+
+/* Estilos para formateo de respuestas de DeepSeek */
+.message-content p {
+    margin: 0.5rem 0;
+    line-height: 1.6;
+}
+
+.message-content strong {
+    color: #2c3e50;
+    font-weight: 600;
+}
+
+.message-content ul {
+    margin: 0.5rem 0;
+    padding-left: 1.5rem;
+}
+
+.message-content li {
+    margin: 0.25rem 0;
+    line-height: 1.5;
+}
+
+.message-content br {
+    margin: 0.25rem 0;
+}
+
+/* Estilos específicos para diferentes tipos de contenido */
+.message-content .resumen-principal {
+    background: #e8f4fd;
+    padding: 0.75rem;
+    border-radius: 6px;
+    border-left: 4px solid #3498db;
+    margin: 0.5rem 0;
+}
+
+.message-content .explicacion-detallada {
+    background: #f8f9fa;
+    padding: 0.75rem;
+    border-radius: 6px;
+    margin: 0.5rem 0;
+}
+
+.message-content .puntos-clave {
+    background: #fff3cd;
+    padding: 0.75rem;
+    border-radius: 6px;
+    border-left: 4px solid #ffc107;
+    margin: 0.5rem 0;
+}
+
+.message-content .fuentes-consultadas {
+    background: #d1ecf1;
+    padding: 0.75rem;
+    border-radius: 6px;
+    border-left: 4px solid #17a2b8;
+    margin: 0.5rem 0;
+    font-size: 0.9rem;
+    font-style: italic;
+}
+
+/* Estilos para el contenido HTML renderizado */
+.message-content div[class*="resumen-principal"],
+.message-content div[class*="explicacion-detallada"],
+.message-content div[class*="puntos-clave"],
+.message-content div[class*="fuentes-consultadas"] {
+    margin: 0.5rem 0;
+    padding: 0.75rem;
+    border-radius: 6px;
+}
+
+.message-content div[class*="resumen-principal"] {
+    background: #e8f4fd;
+    border-left: 4px solid #3498db;
+}
+
+.message-content div[class*="explicacion-detallada"] {
+    background: #f8f9fa;
+}
+
+.message-content div[class*="puntos-clave"] {
+    background: #fff3cd;
+    border-left: 4px solid #ffc107;
+}
+
+.message-content div[class*="fuentes-consultadas"] {
+    background: #d1ecf1;
+    border-left: 4px solid #17a2b8;
+    font-size: 0.9rem;
+    font-style: italic;
 }
 
 .message-sources {
     margin-top: 1rem;
-    padding-top: 1rem;
-    border-top: 1px solid #ddd;
-    font-size: 0.9rem;
+    padding: 0.75rem;
+    background: #f8f9fa;
+    border-radius: 6px;
+    border-left: 4px solid #6c757d;
 }
 
 .message-sources h4 {
@@ -498,6 +599,14 @@
     .dashboard-content {
         padding: 1rem;
     }
+    .stats-grid {
+        flex-direction: column;
+        gap: 16px;
+    }
+    .stat-card {
+        min-width: 0;
+        padding: 18px 10px;
+    }
 }
 
 .dashboard-container {
@@ -562,4 +671,45 @@
     border-radius: 10px;
     padding: 2rem;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.expand-history-btn {
+    margin-top: 0.5rem;
+    background: #1976d2;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    padding: 0.4rem 1rem;
+    cursor: pointer;
+    font-size: 0.95rem;
+    transition: background 0.2s;
+}
+.expand-history-btn:hover {
+    background: #145ea8;
+}
+.progress-history {
+    background: #f4f8fb;
+    border-radius: 6px;
+    margin-top: 1rem;
+    padding: 1rem;
+    box-shadow: 0 1px 4px rgba(44, 62, 80, 0.05);
+}
+.progress-history h5 {
+    margin: 0 0 0.5rem 0;
+    color: #1976d2;
+    font-size: 1rem;
+}
+.progress-history ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+.progress-history li {
+    padding: 0.3rem 0;
+    border-bottom: 1px solid #e0e0e0;
+    font-size: 0.98rem;
+    color: #2c3e50;
+}
+.progress-history li:last-child {
+    border-bottom: none;
 } 

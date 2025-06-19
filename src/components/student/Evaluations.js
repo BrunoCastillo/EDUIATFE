@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../config/supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
 import './Evaluations.css';
+import { subjectService } from '../../services/subject.service';
 
 const Evaluations = () => {
     const { session, user, loading } = useAuth();
@@ -143,7 +144,7 @@ const Evaluations = () => {
         }));
     };
 
-    const calculateScore = () => {
+    const calculateScore = async () => {
         let correctAnswers = 0;
         questions.forEach(question => {
             if (answers[question.id] === question.correct_answer) {
@@ -153,6 +154,28 @@ const Evaluations = () => {
         const finalScore = (correctAnswers / questions.length) * 100;
         setScore(finalScore);
         setShowResults(true);
+
+        // Guardar progreso en la base de datos
+        try {
+            // Buscar el student_subje correspondiente
+            const { data: studentSubject } = await supabase
+                .from('students_subjects')
+                .select('id')
+                .eq('student_id', user.id)
+                .eq('subject_id', selectedSubject)
+                .single();
+            if (!studentSubject) throw new Error('No se encontró la relación estudiante-materia');
+            await subjectService.saveStudentProgress({
+                student_subject_id: studentSubject.id,
+                document_id: selectedDocument,
+                status: 'completado',
+                completion_percentage: 100,
+                assessment_score: finalScore,
+                notes: null
+            });
+        } catch (err) {
+            console.error('Error al guardar el progreso del estudiante:', err);
+        }
     };
 
     const goToQuestion = (idx) => setActiveQuestion(idx);
@@ -181,12 +204,6 @@ const Evaluations = () => {
 
     return (
         <div className="evaluations-test-layout">
-            {/* DEBUG: Mostrar selectedDocument y lista de documentos disponibles */}
-            <pre style={{background:'#f8f8f8',padding:'1em',fontSize:'0.9em'}}>
-                <b>DEBUG selectedDocument:</b> {JSON.stringify(selectedDocument, null, 2)}
-                {'\n'}
-                <b>DEBUG documents:</b> {JSON.stringify(documents, null, 2)}
-            </pre>
             <div className="test-main-panel">
                 <h2>Evaluaciones</h2>
                 <div className="combo-row">

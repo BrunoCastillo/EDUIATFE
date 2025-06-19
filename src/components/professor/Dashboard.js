@@ -23,6 +23,7 @@ const Dashboard = () => {
     const [ragChatMessage, setRagChatMessage] = useState('');
     const [ragChatHistory, setRagChatHistory] = useState([]);
     const [isRagProcessing, setIsRagProcessing] = useState(false);
+    const [subjectStats, setSubjectStats] = useState([]);
 
     useEffect(() => {
         if (!authLoading && !user) {
@@ -33,6 +34,7 @@ const Dashboard = () => {
     useEffect(() => {
         if (user) {
             fetchSubjects();
+            fetchSubjectStats();
         }
     }, [user]);
 
@@ -50,6 +52,15 @@ const Dashboard = () => {
         } catch (error) {
             setSubjects([]);
         }
+    };
+
+    const fetchSubjectStats = async () => {
+        if (!subjects || subjects.length === 0) return;
+        const stats = subjects.map(subject => ({
+            name: subject.name,
+            count: Math.floor(Math.random() * 50) + 10
+        }));
+        setSubjectStats(stats);
     };
 
     const handleRagSendMessage = async (e) => {
@@ -83,6 +94,12 @@ const Dashboard = () => {
         }
     };
 
+    // Función para actualizar materias tras crear una nueva
+    const handleSubjectCreated = () => {
+        fetchSubjects();
+        fetchSubjectStats();
+    };
+
     if (authLoading) {
         return <div className="loading">Cargando...</div>;
     }
@@ -109,6 +126,14 @@ const Dashboard = () => {
                         <p>Panel del Profesor</p>
                     </div>
                     <ul className="nav-menu">
+                        <li>
+                            <button 
+                                className={activeTab === 'dashboard' ? 'active' : ''}
+                                onClick={() => setActiveTab('dashboard')}
+                            >
+                                Dashboard
+                            </button>
+                        </li>
                         <li>
                             <button 
                                 className={activeTab === 'subjects' ? 'active' : ''}
@@ -147,8 +172,68 @@ const Dashboard = () => {
                     </button>
                 </nav>
                 <main className="dashboard-main">
+                    {activeTab === 'dashboard' && (
+                        <div className="professor-dashboard-indicators">
+                            <h2>Indicadores del Profesor</h2>
+                            <div className="indicators-grid">
+                                <div className="indicator-card">
+                                    <h4>Tasa de Finalización de Cursos</h4>
+                                    <p className="indicator-value">78.88%</p>
+                                </div>
+                                <div className="indicator-card">
+                                    <h4>Porcentaje de Asistencia</h4>
+                                    <p className="indicator-value">88.42%</p>
+                                </div>
+                                <div className="indicator-card">
+                                    <h4>Tasa de Retención</h4>
+                                    <p className="indicator-value">87.52%</p>
+                                </div>
+                                <div className="indicator-card">
+                                    <h4>Ratio Docente/Estudiante</h4>
+                                    <p className="indicator-value">2 | 13</p>
+                                </div>
+                            </div>
+                            <div className="charts-row">
+                                <div className="chart-placeholder">
+                                    <h5>Distribución por Género</h5>
+                                    <div className="chart-donut">♂️ 40% | 60% ♀️</div>
+                                </div>
+                                <div className="chart-placeholder">
+                                    <h5>Distribución por Curso</h5>
+                                    <div className="chart-donut">Ciencias 16% | Artes 18% | Diseño 18% ...</div>
+                                </div>
+                                <div className="chart-placeholder">
+                                    <h5>Distribución por Edad</h5>
+                                    <div className="chart-bar">22 años: 700 | 21 años: 600 ...</div>
+                                </div>
+                                <div className="chart-placeholder" style={{ minWidth: 320 }}>
+                                    <h5>Estudiantes inscritos por materia</h5>
+                                    <div className="chart-bar-group">
+                                        {subjectStats.length === 0 ? (
+                                            <p>No hay materias para mostrar.</p>
+                                        ) : (
+                                            subjectStats.map((stat, idx) => (
+                                                <div key={stat.name} className="bar-row">
+                                                    <span className="bar-label">{stat.name}</span>
+                                                    <div className="bar-outer">
+                                                        <div className="bar-inner" style={{ width: `${stat.count * 2}px` }}></div>
+                                                        <span className="bar-value">{stat.count}</span>
+                                                    </div>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                     {activeTab === 'subjects' && (
-                        <Subjects professorId={user.id} session={session} user={user} />
+                        <Subjects 
+                            professorId={user.id} 
+                            session={session} 
+                            user={user}
+                            onSubjectCreated={handleSubjectCreated}
+                        />
                     )}
                     {activeTab === 'chat' && (
                         <div className="chat-container">

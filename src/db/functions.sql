@@ -2,12 +2,13 @@
 CREATE OR REPLACE FUNCTION match_fragments(
     query_embedding vector(1536),
     match_threshold float,
-    match_count int
+    match_count int,
+    p_subject_id uuid
 )
 RETURNS TABLE (
-    id bigint,
-    document_id bigint,
-    subject_id bigint,
+    id uuid,
+    document_id uuid,
+    subject_id uuid,
     section_title text,
     page_number int,
     fragment text,
@@ -18,16 +19,18 @@ AS $$
 BEGIN
     RETURN QUERY
     SELECT
-        embeddings.id,
-        embeddings.document_id,
-        embeddings.subject_id,
-        embeddings.section_title,
-        embeddings.page_number,
-        embeddings.fragment,
-        1 - (embeddings.embedding <=> query_embedding) as similarity
-    FROM embeddings
-    WHERE 1 - (embeddings.embedding <=> query_embedding) > match_threshold
-    ORDER BY embeddings.embedding <=> query_embedding
+        e.id,
+        e.document_id,
+        d.subject_id,
+        COALESCE(d.name, 'Documento') as section_title,
+        1 as page_number,
+        e.content_chunk as fragment,
+        1 - (e.embedding_vector <=> query_embedding) as similarity
+    FROM embeddings e
+    JOIN documents d ON e.document_id = d.id
+    WHERE 1 - (e.embedding_vector <=> query_embedding) > match_threshold
+    AND d.subject_id = p_subject_id
+    ORDER BY e.embedding_vector <=> query_embedding
     LIMIT match_count;
 END;
 $$; 

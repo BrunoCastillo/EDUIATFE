@@ -334,4 +334,154 @@
 .no-subjects p {
     color: #666;
     margin-bottom: 15px;
+}
+
+/* Indicadores del Dashboard del Profesor */
+.professor-dashboard-indicators {
+    background: #fff;
+    border-radius: 10px;
+    padding: 2rem;
+    box-shadow: 0 2px 8px rgba(44, 62, 80, 0.08);
+    margin-bottom: 2rem;
+}
+
+.professor-dashboard-indicators h2 {
+    font-size: 2rem;
+    color: #2c3e50;
+    margin-bottom: 1.5rem;
+}
+
+.indicators-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.indicator-card {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 1.5rem 1rem;
+    box-shadow: 0 1px 4px rgba(44, 62, 80, 0.05);
+    text-align: center;
+    transition: box-shadow 0.2s;
+}
+
+.indicator-card:hover {
+    box-shadow: 0 4px 12px rgba(44, 62, 80, 0.12);
+}
+
+.indicator-card h4 {
+    color: #1976d2;
+    font-size: 1.1rem;
+    margin-bottom: 0.5rem;
+}
+
+.indicator-value {
+    font-size: 2.2rem;
+    font-weight: bold;
+    color: #2c3e50;
+    margin-top: 0.5rem;
+}
+
+.charts-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2rem;
+    justify-content: space-between;
+}
+
+.chart-placeholder {
+    background: #f4f8fb;
+    border-radius: 8px;
+    padding: 1.5rem 1rem;
+    flex: 1 1 250px;
+    min-width: 220px;
+    text-align: center;
+    box-shadow: 0 1px 4px rgba(44, 62, 80, 0.05);
+}
+
+.chart-placeholder h5 {
+    color: #1976d2;
+    font-size: 1rem;
+    margin-bottom: 1rem;
+}
+
+.chart-donut {
+    width: 110px;
+    height: 110px;
+    margin: 0 auto 0.5rem auto;
+    border-radius: 50%;
+    background: conic-gradient(#1976d2 0% 40%, #f7b6b6 40% 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #2c3e50;
+    font-size: 1.1rem;
+    font-weight: bold;
+    position: relative;
+}
+
+.chart-bar {
+    width: 100%;
+    height: 30px;
+    background: linear-gradient(90deg, #1976d2 60%, #f7b6b6 100%);
+    border-radius: 6px;
+    margin: 0 auto 0.5rem auto;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    font-weight: bold;
+}
+
+.chart-bar-group {
+    margin-top: 1rem;
+    width: 100%;
+}
+.bar-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 0.7rem;
+}
+.bar-label {
+    flex: 0 0 110px;
+    font-size: 0.98rem;
+    color: #2c3e50;
+    text-align: left;
+    margin-right: 0.5rem;
+}
+.bar-outer {
+    flex: 1;
+    background: #e9ecef;
+    border-radius: 6px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    position: relative;
+    margin-right: 0.5rem;
+}
+.bar-inner {
+    background: #1976d2;
+    height: 100%;
+    border-radius: 6px;
+    transition: width 0.4s;
+}
+.bar-value {
+    min-width: 32px;
+    font-size: 1rem;
+    color: #1976d2;
+    font-weight: bold;
+    text-align: right;
+}
+
+@media (max-width: 900px) {
+    .charts-row {
+        flex-direction: column;
+        gap: 1.5rem;
+    }
+    .chart-placeholder {
+        min-width: 0;
+    }
 } 

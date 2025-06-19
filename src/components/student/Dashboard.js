@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../config/supabaseClient';
+import { ragService } from '../../services/rag.service';
+import { subjectService } from '../../services/subject.service';
 import Chat from './Chat';
 import IntroScreen from '../IntroScreen';
 import PDFUpload from './PDFUpload';
@@ -20,6 +22,8 @@ const StudentDashboard = () => {
     const [error, setError] = useState(null);
     const [notification, setNotification] = useState(null);
     const [selectedSubjectId, setSelectedSubjectId] = useState('');
+    const [progressBySubject, setProgressBySubject] = useState({});
+    const [expandedSubject, setExpandedSubject] = useState(null);
 
     useEffect(() => {
         if (!authLoading && !user) {
@@ -31,6 +35,7 @@ const StudentDashboard = () => {
         if (user) {
             fetchEnrolledSubjects();
             fetchAvailableSubjects();
+            fetchStudentProgress();
         }
     }, [user]);
 
@@ -181,6 +186,23 @@ const StudentDashboard = () => {
         }
     };
 
+    const fetchStudentProgress = async () => {
+        try {
+            const progressData = await subjectService.getStudentProgressByUser(user.id);
+            // Agrupar por materia
+            const progressMap = {};
+            progressData.forEach(row => {
+                const subjectId = enrolledSubjects.find(s => s.id === row.student_subject_id)?.id;
+                if (!subjectId) return;
+                if (!progressMap[subjectId]) progressMap[subjectId] = [];
+                progressMap[subjectId].push(row);
+            });
+            setProgressBySubject(progressMap);
+        } catch (err) {
+            console.error('Error al obtener el progreso del estudiante:', err);
+        }
+    };
+
     const handleEnroll = async (subjectId) => {
         try {
             console.log('Iniciando handleEnroll para subjectId:', subjectId);
@@ -314,6 +336,130 @@ const StudentDashboard = () => {
         }
     };
 
+    // Función para formatear el texto de las respuestas de DeepSeek
+    const formatResponseText = (text) => {
+        if (!text) return '';
+        
+        let formattedText = text;
+        
+        // Convertir **texto** a <strong>texto</strong>
+        formattedText = formattedText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        
+        // Dividir el texto en líneas para procesar mejor
+        const lines = formattedText.split('\n');
+        const processedLines = [];
+        let inList = false;
+        let hasStructuredFormat = false;
+        
+        // Verificar si la respuesta ya tiene formato estructurado
+        const hasResumen = lines.some(line => line.includes('**Resumen Principal**'));
+        const hasExplicacion = lines.some(line => line.includes('**Explicación Detallada**'));
+        const hasPuntos = lines.some(line => line.includes('**Puntos Clave**'));
+        const hasFuentes = lines.some(line => line.includes('**Fuentes Consultadas**'));
+        
+        hasStructuredFormat = hasResumen || hasExplicacion || hasPuntos || hasFuentes;
+        
+        // Si no tiene formato estructurado, crear uno por defecto
+        if (!hasStructuredFormat) {
+            processedLines.push('<div class="explicacion-detallada">');
+            processedLines.push('<strong>Respuesta del Asistente</strong>');
+        }
+        
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            
+            // Detectar secciones principales
+            if (line.includes('**Resumen Principal**')) {
+                if (inList) {
+                    processedLines.push('</ul>');
+                    inList = false;
+                }
+                processedLines.push('<div class="resumen-principal">');
+                processedLines.push(line.replace('**Resumen Principal**', '<strong>Resumen Principal</strong>'));
+                continue;
+            }
+            
+            if (line.includes('**Explicación Detallada**')) {
+                if (inList) {
+                    processedLines.push('</ul>');
+                    inList = false;
+                }
+                processedLines.push('</div><div class="explicacion-detallada">');
+                processedLines.push(line.replace('**Explicación Detallada**', '<strong>Explicación Detallada</strong>'));
+                continue;
+            }
+            
+            if (line.includes('**Puntos Clave**')) {
+                if (inList) {
+                    processedLines.push('</ul>');
+                    inList = false;
+                }
+                processedLines.push('</div><div class="puntos-clave">');
+                processedLines.push(line.replace('**Puntos Clave**', '<strong>Puntos Clave</strong>'));
+                continue;
+            }
+            
+            if (line.includes('**Fuentes Consultadas**')) {
+                if (inList) {
+                    processedLines.push('</ul>');
+                    inList = false;
+                }
+                processedLines.push('</div><div class="fuentes-consultadas">');
+                processedLines.push(line.replace('**Fuentes Consultadas**', '<strong>Fuentes Consultadas</strong>'));
+                continue;
+            }
+            
+            // Detectar elementos de lista
+            if (line.startsWith('•')) {
+                if (!inList) {
+                    processedLines.push('<ul>');
+                    inList = true;
+                }
+                processedLines.push('<li>' + line.substring(1).trim() + '</li>');
+                continue;
+            }
+            
+            // Si no es un elemento de lista pero estábamos en una lista, cerrar la lista
+            if (inList && line.length > 0) {
+                processedLines.push('</ul>');
+                inList = false;
+            }
+            
+            // Procesar líneas normales
+            if (line.length > 0) {
+                processedLines.push('<p>' + line + '</p>');
+            } else {
+                processedLines.push('<br>');
+            }
+        }
+        
+        // Cerrar lista si estaba abierta
+        if (inList) {
+            processedLines.push('</ul>');
+        }
+        
+        // Cerrar todas las secciones abiertas
+        if (processedLines.some(line => line.includes('class="resumen-principal"'))) {
+            processedLines.push('</div>');
+        }
+        if (processedLines.some(line => line.includes('class="explicacion-detallada"'))) {
+            processedLines.push('</div>');
+        }
+        if (processedLines.some(line => line.includes('class="puntos-clave"'))) {
+            processedLines.push('</div>');
+        }
+        if (processedLines.some(line => line.includes('class="fuentes-consultadas"'))) {
+            processedLines.push('</div>');
+        }
+        
+        // Si no tenía formato estructurado, cerrar la sección por defecto
+        if (!hasStructuredFormat) {
+            processedLines.push('</div>');
+        }
+        
+        return processedLines.join('');
+    };
+
     const handleSendMessage = async (e) => {
         e.preventDefault();
         if (!chatMessage.trim() || isProcessing || !selectedSubjectId) return;
@@ -445,7 +591,48 @@ const StudentDashboard = () => {
                             </div>
                             <div className="stat-card">
                                 <h4>Progreso General</h4>
-                                <p>0%</p>
+                                <p>{enrolledSubjects.length > 0 ? `${Math.round(enrolledSubjects.reduce((acc, subj) => acc + (subj.progress || 0), 0) / enrolledSubjects.length)}%` : '0%'}</p>
+                            </div>
+                        </div>
+                        {/* Progreso detallado por materia */}
+                        <div className="progress-section" style={{marginTop: '2rem'}}>
+                            <h3>Mi Progreso por Materia</h3>
+                            <div className="progress-grid">
+                                {enrolledSubjects.length === 0 ? (
+                                    <p>No tienes materias inscritas.</p>
+                                ) : (
+                                    enrolledSubjects.map((subject) => {
+                                        const progressList = progressBySubject[subject.id] || [];
+                                        const avgCompletion = progressList.length > 0 ? Math.round(progressList.reduce((acc, p) => acc + (p.completion_percentage || 0), 0) / progressList.length) : 0;
+                                        const avgScore = progressList.length > 0 ? (progressList.reduce((acc, p) => acc + (p.assessment_score || 0), 0) / progressList.length).toFixed(2) : '0.00';
+                                        return (
+                                            <div className="progress-card" key={subject.id}>
+                                                <h4>{subject.name}</h4>
+                                                <div className="progress-bar">
+                                                    <div className="progress-fill" style={{ width: `${avgCompletion}%` }}></div>
+                                                </div>
+                                                <p>{avgCompletion}% completado</p>
+                                                <p>Nota promedio: {avgScore}</p>
+                                                <button className="expand-history-btn" onClick={() => setExpandedSubject(expandedSubject === subject.id ? null : subject.id)}>
+                                                    {expandedSubject === subject.id ? 'Ocultar historial' : 'Ver historial'}
+                                                </button>
+                                                {expandedSubject === subject.id && progressList.length > 0 && (
+                                                    <div className="progress-history">
+                                                        <h5>Historial de Evaluaciones</h5>
+                                                        <ul>
+                                                            {progressList.map((p, idx) => (
+                                                                <li key={idx}>
+                                                                    <span>Fecha: {p.completion_date ? new Date(p.completion_date).toLocaleDateString() : '-'}</span> | 
+                                                                    <span>Nota: {p.assessment_score?.toFixed(2) ?? '-'}</span>
+                                                                </li>
+                                                            ))}
+                                                        </ul>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })
+                                )}
                             </div>
                         </div>
                     </div>
@@ -453,6 +640,9 @@ const StudentDashboard = () => {
 
                 {activeTab === 'chat' && (
                     <div className="chat-container">
+                        <div style={{ background: '#f0f0f0', padding: '10px', marginBottom: '10px', borderRadius: '5px' }}>
+                            <strong>DEBUG:</strong> Chat activo - Materias inscritas: {enrolledSubjects.length} - Materia seleccionada: {selectedSubjectId || 'Ninguna'}
+                        </div>
                         <div className="select-subject-section" style={{ marginBottom: '1rem' }}>
                             <label htmlFor="select-subject">Selecciona una asignatura para consultar:</label>
                             <select
@@ -463,20 +653,40 @@ const StudentDashboard = () => {
                                     setSelectedSubjectId(e.target.value);
                                     setChatHistory([]); // Limpiar historial al cambiar de materia
                                 }}
+                                style={{ marginLeft: '10px', padding: '5px' }}
                             >
-                                <option value="">Selecciona una materia</option>
+                                <option value="">Selecciona una materia...</option>
                                 {enrolledSubjects.map(subject => (
                                     <option key={subject.id} value={subject.id}>
                                         {subject.name}
                                     </option>
                                 ))}
                             </select>
-                            {enrolledSubjects.length === 0 && (
-                                <p className="no-subjects-message">
-                                    No tienes materias inscritas. Por favor, inscríbete en una materia primero.
-                                </p>
-                            )}
                         </div>
+                        
+                        {/* Nota informativa sobre el formato */}
+                        <div style={{ 
+                            background: '#e8f4fd', 
+                            padding: '10px', 
+                            borderRadius: '6px', 
+                            marginBottom: '15px',
+                            fontSize: '14px',
+                            borderLeft: '4px solid #3498db'
+                        }}>
+                            <strong>💡 Formato de Respuesta:</strong> El asistente IA proporcionará respuestas estructuradas con:
+                            <ul style={{ margin: '5px 0 0 20px', padding: 0 }}>
+                                <li><strong>Resumen Principal:</strong> Breve resumen de la respuesta</li>
+                                <li><strong>Explicación Detallada:</strong> Información completa sobre el tema</li>
+                                <li><strong>Puntos Clave:</strong> Aspectos importantes a recordar</li>
+                                <li><strong>Fuentes Consultadas:</strong> Documentos de referencia utilizados</li>
+                            </ul>
+                        </div>
+                        
+                        {enrolledSubjects.length === 0 && (
+                            <p className="no-subjects-message">
+                                No tienes materias inscritas. Por favor, inscríbete en una materia primero.
+                            </p>
+                        )}
 
                         <div className="chat-messages">
                             {!selectedSubjectId ? (
@@ -510,7 +720,16 @@ const StudentDashboard = () => {
                                         className={`message ${message.type}`}
                                     >
                                         <div className="message-content">
-                                            {message.content}
+                                            <div dangerouslySetInnerHTML={{ __html: formatResponseText(message.content) }} />
+                                            {/* Debug: Mostrar HTML generado */}
+                                            {process.env.NODE_ENV === 'development' && (
+                                                <details style={{ marginTop: '10px', fontSize: '12px', color: '#666' }}>
+                                                    <summary>Debug: HTML Generado</summary>
+                                                    <pre style={{ background: '#f5f5f5', padding: '10px', borderRadius: '4px', overflow: 'auto' }}>
+                                                        {formatResponseText(message.content)}
+                                                    </pre>
+                                                </details>
+                                            )}
                                             {message.sources && message.sources.length > 0 && (
                                                 <div className="message-sources">
                                                     <h4>Fuentes:</h4>
@@ -600,35 +819,6 @@ const StudentDashboard = () => {
                                     </div>
                                 );
                             })}
-                        </div>
-                    </div>
-                )}
-
-                {activeTab === 'progress' && (
-                    <div className="progress-section">
-                        <h2>Mi Progreso</h2>
-                        <div className="progress-grid">
-                            <div className="progress-card">
-                                <h4>Matemáticas</h4>
-                                <div className="progress-bar">
-                                    <div className="progress-fill" style={{ width: '85%' }}></div>
-                                </div>
-                                <p>85%</p>
-                            </div>
-                            <div className="progress-card">
-                                <h4>Física</h4>
-                                <div className="progress-bar">
-                                    <div className="progress-fill" style={{ width: '75%' }}></div>
-                                </div>
-                                <p>75%</p>
-                            </div>
-                            <div className="progress-card">
-                                <h4>Programación</h4>
-                                <div className="progress-bar">
-                                    <div className="progress-fill" style={{ width: '90%' }}></div>
-                                </div>
-                                <p>90%</p>
-                            </div>
                         </div>
                     </div>
                 )}

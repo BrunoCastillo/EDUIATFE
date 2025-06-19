@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase, updateSession } from '../../config/supabaseClient';
 import { syllabusService } from '../../services/syllabus.service';
-import { useAuth } from '../../context/auth_context';
+import { useAuth } from '../../contexts/AuthContext';
 import './SyllabusUpload.css';
 
 const SyllabusUpload = ({ subjectId, setSubjectId, subjects }) => {
