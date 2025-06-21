@@ -2,6 +2,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.entry';
 import { supabase } from '../config/supabaseClient';
 import { ragService } from './rag.service';
+import stopwords from '../utils/stopwords_es';
 
 // Configurar el worker de PDF.js
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
@@ -15,6 +16,8 @@ class NLPService {
             idioma: 'español',
             stopwordsFile: 'spanish.json'
         };
+        // Convertir stopwords a Set para búsqueda más eficiente
+        this.stopwordsSet = new Set(stopwords);
     }
 
     async extractTextFromPDF(file) {
@@ -77,6 +80,7 @@ class NLPService {
     async processText(text) {
         try {
             console.log('Iniciando procesamiento del texto...');
+            console.log('Stopwords cargadas:', this.stopwordsSet.size, 'palabras');
             
             // Dividir el texto en páginas
             const pages = text.split('\n\n').filter(page => page.trim().length > 0);
@@ -84,18 +88,46 @@ class NLPService {
 
             // Procesar cada página
             const processedPages = pages.map((page, index) => {
+                console.log(`\n--- Procesando página ${index + 1} ---`);
+                
                 // Dividir en palabras y limpiar
-                const words = page
+                const allWords = page
                     .toLowerCase()
                     .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, '')
                     .split(/\s+/)
                     .filter(word => word.length > 0);
+                
+                console.log('Palabras totales en la página:', allWords.length);
+                console.log('Primeras 10 palabras:', allWords.slice(0, 10));
+                
+                // Filtrar stopwords y mostrar las que se eliminan
+                const removedStopwords = allWords.filter(word => this.stopwordsSet.has(word));
+                const filteredWords = allWords.filter(word => !this.stopwordsSet.has(word));
+                
+                console.log('Stopwords eliminadas:', removedStopwords.length);
+                if (removedStopwords.length > 0) {
+                    console.log('Lista de stopwords eliminadas:', removedStopwords.slice(0, 20));
+                    if (removedStopwords.length > 20) {
+                        console.log('... y', removedStopwords.length - 20, 'más');
+                    }
+                }
+                
+                console.log('Palabras después del filtrado:', filteredWords.length);
+                console.log('Primeras 10 palabras filtradas:', filteredWords.slice(0, 10));
 
-                // Calcular estadísticas
-                const wordCount = words.length;
-                const uniqueWords = [...new Set(words)].length;
+                // Calcular estadísticas sin stopwords
+                const wordCount = filteredWords.length;
+                const uniqueWords = [...new Set(filteredWords)].length;
                 const sentences = page.split(/[.!?]+/).filter(s => s.trim().length > 0);
                 const sentenceCount = sentences.length;
+
+                console.log(`Estadísticas página ${index + 1}:`, {
+                    palabrasOriginales: allWords.length,
+                    stopwordsEliminadas: removedStopwords.length,
+                    palabrasFinales: wordCount,
+                    palabrasUnicas: uniqueWords,
+                    oraciones: sentenceCount
+                });
 
                 return {
                     pageNumber: index + 1,
@@ -107,7 +139,20 @@ class NLPService {
                 };
             });
 
-            console.log('Procesamiento de texto completado');
+            console.log('\n=== RESUMEN DEL PROCESAMIENTO ===');
+            const totalOriginalWords = processedPages.reduce((sum, page) => {
+                const pageWords = page.content.toLowerCase()
+                    .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, '')
+                    .split(/\s+/)
+                    .filter(word => word.length > 0);
+                return sum + pageWords.length;
+            }, 0);
+            const totalFilteredWords = processedPages.reduce((sum, page) => sum + page.wordCount, 0);
+            console.log('Total palabras originales:', totalOriginalWords);
+            console.log('Total palabras después de filtrar stopwords:', totalFilteredWords);
+            console.log('Stopwords eliminadas en total:', totalOriginalWords - totalFilteredWords);
+            
+            console.log('Procesamiento de texto completado (stopwords eliminadas)');
             return processedPages;
         } catch (error) {
             console.error('Error al procesar el texto:', error);
@@ -119,16 +164,32 @@ class NLPService {
         try {
             console.log('Generando estructura JSON...');
             
-            // Calcular estadísticas generales
+            // Calcular estadísticas generales sin stopwords
             const totalWords = processedText.reduce((sum, page) => sum + page.wordCount, 0);
-            const totalUniqueWords = new Set(
-                processedText.flatMap(page => 
-                    page.content.toLowerCase()
-                        .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, '')
-                        .split(/\s+/)
-                        .filter(word => word.length > 0)
-                )
-            ).size;
+            
+            // Calcular palabras únicas con logs detallados
+            console.log('\n--- Cálculo de palabras únicas totales ---');
+            const allWordsFromPages = processedText.flatMap(page => 
+                page.content.toLowerCase()
+                    .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, '')
+                    .split(/\s+/)
+                    .filter(word => word.length > 0)
+            );
+            console.log('Total palabras extraídas de todas las páginas:', allWordsFromPages.length);
+            console.log('Primeras 15 palabras extraídas:', allWordsFromPages.slice(0, 15));
+            
+            // Filtrar stopwords para palabras únicas
+            const uniqueWordsWithoutStopwords = allWordsFromPages.filter(word => !this.stopwordsSet.has(word));
+            const removedStopwordsTotal = allWordsFromPages.filter(word => this.stopwordsSet.has(word));
+            
+            console.log('Stopwords eliminadas del cálculo de palabras únicas:', removedStopwordsTotal.length);
+            if (removedStopwordsTotal.length > 0) {
+                console.log('Ejemplos de stopwords eliminadas:', [...new Set(removedStopwordsTotal)].slice(0, 15));
+            }
+            
+            const totalUniqueWords = new Set(uniqueWordsWithoutStopwords).size;
+            console.log('Palabras únicas después de filtrar stopwords:', totalUniqueWords);
+            
             const totalSentences = processedText.reduce((sum, page) => sum + page.sentenceCount, 0);
 
             const result = {
@@ -146,6 +207,13 @@ class NLPService {
             };
 
             console.log('Estructura JSON generada');
+            console.log('Resumen final:', {
+                archivo: fileName,
+                paginas: numPages,
+                palabrasTotales: totalWords,
+                palabrasUnicas: totalUniqueWords,
+                oraciones: totalSentences
+            });
             return result;
         } catch (error) {
             console.error('Error al generar JSON:', error);
