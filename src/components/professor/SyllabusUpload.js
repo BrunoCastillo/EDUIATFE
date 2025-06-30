@@ -4,7 +4,7 @@ import { syllabusService } from '../../services/syllabus.service';
 import { useAuth } from '../../contexts/AuthContext';
 import './SyllabusUpload.css';
 
-const SyllabusUpload = ({ subjectId, setSubjectId, subjects }) => {
+const SyllabusUpload = ({ subjectId, setSubjectId, subjects, onUploadComplete }) => {
     const { user, session } = useAuth();
     const [files, setFiles] = useState([]);
     const [uploadedFiles, setUploadedFiles] = useState([]);
@@ -17,14 +17,30 @@ const SyllabusUpload = ({ subjectId, setSubjectId, subjects }) => {
     const [generatedQuestions, setGeneratedQuestions] = useState([]);
     const [isGeneratingQuestions, setIsGeneratingQuestions] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
+    const [localSubjectId, setLocalSubjectId] = useState(subjectId);
+
+    // Usar el subjectId local si no se pasa setSubjectId desde el padre
+    const currentSubjectId = setSubjectId ? subjectId : localSubjectId;
+    const handleSubjectIdChange = setSubjectId || setLocalSubjectId;
 
     useEffect(() => {
         setIsLoading(false);
         fetchUploadedFiles();
-    }, [subjectId, session]);
+    }, [currentSubjectId, session]);
+
+    useEffect(() => {
+        if (subjectId && !setSubjectId) {
+            setLocalSubjectId(subjectId);
+        }
+    }, [subjectId, setSubjectId]);
+
+    useEffect(() => {
+        console.log('[SyllabusUpload] Materias disponibles:', subjects);
+        console.log('[SyllabusUpload] SubjectId actual:', currentSubjectId);
+    }, [subjects, currentSubjectId]);
 
     const fetchUploadedFiles = async () => {
-        if (!subjectId) {
+        if (!currentSubjectId) {
             setUploadedFiles([]);
             return;
         }
@@ -32,7 +48,7 @@ const SyllabusUpload = ({ subjectId, setSubjectId, subjects }) => {
             const { data: syllabusData, error: syllabusError } = await supabase
                 .from('syllabus')
                 .select('*')
-                .eq('subject_id', subjectId)
+                .eq('subject_id', currentSubjectId)
                 .order('created_at', { ascending: false });
             if (syllabusError) throw syllabusError;
             const syllabusWithTopics = await Promise.all(
@@ -195,7 +211,7 @@ const SyllabusUpload = ({ subjectId, setSubjectId, subjects }) => {
             const { data: savedTopics, error: topicsError } = await supabase
                 .from('syllabus_topics')
                 .insert(extractedTopics.map(topic => ({
-                    subject_id: subjectId,
+                    subject_id: currentSubjectId,
                     topic_number: topic.number,
                     title: topic.title,
                     description: topic.content || ''
@@ -228,7 +244,7 @@ const SyllabusUpload = ({ subjectId, setSubjectId, subjects }) => {
             setSaveStatus('success');
             setError(null);
         } catch (error) {
-            console.error('Error al guardar el sílabo:', error);
+            console.error('[SyllabusUpload] Error al guardar el sílabo:', error);
             setError(error.message || 'Error al guardar el sílabo');
             setSaveStatus('error');
         } finally {
@@ -237,11 +253,11 @@ const SyllabusUpload = ({ subjectId, setSubjectId, subjects }) => {
     };
 
     const handleGenerateQuestions = async () => {
-        if (!extractedTopics.length || !subjectId) return;
+        if (!extractedTopics.length || !currentSubjectId) return;
         
         setIsGeneratingQuestions(true);
         try {
-            const questions = await syllabusService.generateAndSaveQuestions(subjectId, extractedTopics);
+            const questions = await syllabusService.generateAndSaveQuestions(currentSubjectId, extractedTopics);
             setGeneratedQuestions(questions);
         } catch (error) {
             console.error('Error generando preguntas:', error);
@@ -272,7 +288,7 @@ const SyllabusUpload = ({ subjectId, setSubjectId, subjects }) => {
         );
     }
 
-    if (!subjectId) {
+    if (!currentSubjectId) {
         return (
             <div className="syllabus-upload-container">
                 <div className="error-message">
@@ -300,6 +316,22 @@ const SyllabusUpload = ({ subjectId, setSubjectId, subjects }) => {
                         Subir Archivos
                     </button>
                 </div>
+                {subjects && subjects.length === 0 && (
+                    <div className="no-subjects-message" style={{ 
+                        padding: '1rem', 
+                        backgroundColor: '#f8f9fa', 
+                        border: '1px solid #dee2e6', 
+                        borderRadius: '4px',
+                        marginTop: '0.5rem'
+                    }}>
+                        <p style={{ margin: '0 0 0.5rem 0', fontWeight: 'bold', color: '#495057' }}>
+                            No tienes asignaturas registradas.
+                        </p>
+                        <p style={{ margin: '0', color: '#6c757d', fontSize: '0.9rem' }}>
+                            Ve a la pestaña "Mis Asignaturas" para crear una nueva materia, luego regresa aquí para cargar el sílabo.
+                        </p>
+                    </div>
+                )}
             </div>
         );
     }
@@ -310,8 +342,8 @@ const SyllabusUpload = ({ subjectId, setSubjectId, subjects }) => {
                 <label htmlFor="select-syllabus-subject">Selecciona una asignatura:</label>
                 <select
                     id="select-syllabus-subject"
-                    value={subjectId}
-                    onChange={e => setSubjectId(e.target.value)}
+                    value={currentSubjectId}
+                    onChange={e => handleSubjectIdChange(e.target.value)}
                 >
                     <option value="">Selecciona una asignatura</option>
                     {subjects && subjects.map(subject => (
@@ -319,9 +351,20 @@ const SyllabusUpload = ({ subjectId, setSubjectId, subjects }) => {
                     ))}
                 </select>
                 {subjects && subjects.length === 0 && (
-                    <p className="no-subjects-message">
-                        No tienes asignaturas registradas. Por favor, crea una primero.
-                    </p>
+                    <div className="no-subjects-message" style={{ 
+                        padding: '1rem', 
+                        backgroundColor: '#f8f9fa', 
+                        border: '1px solid #dee2e6', 
+                        borderRadius: '4px',
+                        marginTop: '0.5rem'
+                    }}>
+                        <p style={{ margin: '0 0 0.5rem 0', fontWeight: 'bold', color: '#495057' }}>
+                            No tienes asignaturas registradas.
+                        </p>
+                        <p style={{ margin: '0', color: '#6c757d', fontSize: '0.9rem' }}>
+                            Ve a la pestaña "Mis Asignaturas" para crear una nueva materia, luego regresa aquí para cargar el sílabo.
+                        </p>
+                    </div>
                 )}
             </div>
             <div className="upload-section">
@@ -387,7 +430,7 @@ const SyllabusUpload = ({ subjectId, setSubjectId, subjects }) => {
                 </div>
             )}
 
-            {uploadedFiles.length > 0 && subjectId && (
+            {uploadedFiles.length > 0 && currentSubjectId && (
                 <div className="uploaded-files">
                     <h4>Archivos subidos</h4>
                     <div className="files-list">
@@ -524,4 +567,4 @@ const SyllabusUpload = ({ subjectId, setSubjectId, subjects }) => {
     );
 };
 
-export default SyllabusUpload; 
+export default SyllabusUpload;

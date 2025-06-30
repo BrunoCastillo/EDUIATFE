@@ -85,7 +85,13 @@ class SubjectService {
             const { data: subject, error: subjectError } = await supabase
                 .from('subjects')
                 .insert([subjectToCreate])
-                .select()
+                .select(`
+                    *,
+                    syllabus (
+                        file_url,
+                        file_name
+                    )
+                `)
                 .single();
 
             if (subjectError) {
@@ -137,11 +143,9 @@ class SubjectService {
             // Verificar que el usuario existe en nuestra tabla users
             const { data: existingUser, error: userError } = await supabase
                 .from('users')
-                .select('*')
+                .select('role')
                 .eq('id', user.id)
                 .single();
-
-            console.log('Usuario en tabla users:', existingUser);
 
             if (userError || !existingUser) {
                 throw new Error('Usuario no encontrado en el sistema');
@@ -152,35 +156,24 @@ class SubjectService {
                 throw new Error('Solo los profesores pueden eliminar asignaturas');
             }
 
-            // Verificar que el usuario es el propietario de la asignatura
-            const { data: subject, error: subjectError } = await supabase
-                .from('subjects')
-                .select('professor_id')
-                .eq('id', subjectId)
-                .single();
+            console.log('Verificaciones completadas, procediendo a eliminar asignatura');
 
-            console.log('Asignatura encontrada:', subject);
-
-            if (subjectError || !subject) {
-                throw new Error('Asignatura no encontrada');
-            }
-
-            if (subject.professor_id !== user.id) {
-                throw new Error('No tienes permiso para eliminar esta asignatura');
-            }
-
-            // Eliminar la asignatura
+            // Eliminar la asignatura directamente (las políticas RLS se encargan de la verificación)
             const { error: deleteError } = await supabase
                 .from('subjects')
                 .delete()
-                .eq('id', subjectId);
+                .eq('id', subjectId)
+                .eq('professor_id', user.id); // Asegurar que solo elimina sus propias asignaturas
 
             if (deleteError) {
                 console.error('Error al eliminar asignatura:', deleteError);
                 if (deleteError.code === '42501') {
                     throw new Error('No tienes permiso para eliminar asignaturas');
                 }
-                throw deleteError;
+                if (deleteError.code === 'PGRST116') {
+                    throw new Error('Asignatura no encontrada o no tienes permisos para eliminarla');
+                }
+                throw new Error('Error al eliminar la asignatura: ' + deleteError.message);
             }
 
             console.log('Asignatura eliminada exitosamente');
@@ -221,6 +214,50 @@ class SubjectService {
                 throw new Error('ID de la asignatura no proporcionado');
             }
 
+            // Verificar sesión actual
+            const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+            if (sessionError) throw sessionError;
+
+            if (!session) {
+                throw new Error('No hay una sesión activa. Por favor, inicia sesión nuevamente.');
+            }
+
+            const user = session.user;
+            console.log('Usuario autenticado para actualización:', user);
+
+            // Verificar que el usuario existe en nuestra tabla users y tiene el rol correcto
+            const { data: existingUser, error: userError } = await supabase
+                .from('users')
+                .select('role')
+                .eq('id', user.id)
+                .single();
+
+            if (userError || !existingUser) {
+                throw new Error('Usuario no encontrado en el sistema');
+            }
+
+            // Verificar que el usuario es profesor
+            if (existingUser.role !== 'professor') {
+                throw new Error('Solo los profesores pueden actualizar asignaturas');
+            }
+
+            // Verificar que la asignatura pertenece al profesor
+            const { data: existingSubject, error: subjectCheckError } = await supabase
+                .from('subjects')
+                .select('professor_id')
+                .eq('id', subjectId)
+                .single();
+
+            if (subjectCheckError || !existingSubject) {
+                throw new Error('Asignatura no encontrada');
+            }
+
+            if (existingSubject.professor_id !== user.id) {
+                throw new Error('No tienes permiso para actualizar esta asignatura');
+            }
+
+            console.log('Verificaciones completadas, procediendo a actualizar asignatura');
+
             const { data, error } = await supabase
                 .from('subjects')
                 .update({
@@ -228,17 +265,31 @@ class SubjectService {
                     updated_at: new Date().toISOString()
                 })
                 .eq('id', subjectId)
-                .select()
+                .eq('professor_id', user.id) // Asegurar que solo actualiza sus propias asignaturas
+                .select(`
+                    *,
+                    syllabus (
+                        file_url,
+                        file_name
+                    )
+                `)
                 .single();
 
             if (error) {
-                console.error('Error de Supabase:', error);
-                throw error;
+                console.error('Error de Supabase al actualizar:', error);
+                if (error.code === '42501') {
+                    throw new Error('No tienes permiso para actualizar asignaturas');
+                }
+                if (error.code === 'PGRST116') {
+                    throw new Error('Asignatura no encontrada o no tienes permisos para actualizarla');
+                }
+                throw new Error('Error al actualizar la asignatura: ' + error.message);
             }
 
+            console.log('Asignatura actualizada exitosamente:', data);
             return data;
         } catch (error) {
-            console.error('Error al actualizar la asignatura:', error);
+            console.error('Error en updateSubject:', error);
             throw error;
         }
     }

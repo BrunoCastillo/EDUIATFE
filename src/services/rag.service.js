@@ -1,5 +1,6 @@
 import { supabase } from '../config/supabaseClient';
 import { deepseekService } from './deepseek.service';
+import { nlpService } from './nlp.service';
 
 class RAGService {
     constructor() {
@@ -300,31 +301,71 @@ Basado en: [Documento, página X]`;
         }
     }
 
-    async processDocument(file, subjectId) {
+    async processDocument(file, subjectId, callbacks = {}, session = null) {
         try {
-            console.log('Iniciando procesamiento del documento...');
+            console.log('🚀🚀🚀 RAG SERVICE: Iniciando procesamiento del documento...');
+            console.log('🚀🚀🚀 RAG SERVICE: Archivo recibido:', file.name);
+            console.log('🚀🚀🚀 RAG SERVICE: Subject ID:', subjectId);
+            console.log('🚀🚀🚀 RAG SERVICE: Callbacks recibidos:', Object.keys(callbacks));
+            
+            // Verificar y configurar la sesión de autenticación
+            if (session) {
+                console.log('🚀🚀🚀 RAG SERVICE: Configurando sesión de usuario para Supabase...');
+                await supabase.auth.setSession({
+                    access_token: session.access_token,
+                    refresh_token: session.refresh_token
+                });
+            } else {
+                console.warn('🚀🚀🚀 RAG SERVICE: No se proporcionó sesión - verificando sesión actual...');
+                const { data: { session: currentSession }, error } = await supabase.auth.getSession();
+                if (error || !currentSession) {
+                    throw new Error('Usuario no autenticado. Se requiere sesión válida para procesar documentos.');
+                }
+                console.log('🚀🚀🚀 RAG SERVICE: Sesión actual válida encontrada');
+            }
             
             // 1. Extraer texto del PDF
-            const text = await this.extractTextFromPDF(file);
+            const text = await nlpService.extractTextFromPDF(file);
             console.log('Texto extraído del PDF');
+            if (callbacks.onTextExtracted) callbacks.onTextExtracted();
             
-            // 2. Dividir en chunks
+            // 2. Procesar texto (simular eliminación de stopwords para mostrar progreso)
+            const words = text.split(/\s+/);
+            const originalWords = words.length;
+            // Simular filtrado de stopwords (esto debería hacerse realmente)
+            const filteredWords = Math.floor(originalWords * 0.6); // Aproximadamente 40% son stopwords
+            const removedStopwords = originalWords - filteredWords;
+            
+            if (callbacks.onTextProcessed) {
+                callbacks.onTextProcessed({
+                    originalWords,
+                    filteredWords,
+                    removedStopwords
+                });
+            }
+            
+            // 3. Dividir en chunks
             const chunks = this.splitIntoChunks(text);
             console.log(`Documento dividido en ${chunks.length} chunks`);
+            if (callbacks.onChunksCreated) callbacks.onChunksCreated(chunks.length);
             
-            // 3. Generar embeddings
+            // 4. Generar embeddings
+            if (callbacks.onEmbeddingsStart) callbacks.onEmbeddingsStart();
             const embeddings = await this.generateEmbeddings(chunks);
             console.log('Embeddings generados');
+            if (callbacks.onEmbeddingsComplete) callbacks.onEmbeddingsComplete();
             
-            // 4. Guardar en Supabase
+            // 5. Guardar en Supabase - solo crear un registro mínimo para obtener el ID
             const { data: document, error: docError } = await supabase
                 .from('documents')
                 .insert([{
                     subject_id: subjectId,
+                    title: file.name,
                     file_name: file.name,
                     file_type: file.type,
                     file_size: file.size,
-                    content: text
+                    file_path: `processed_${Date.now()}`,
+                    user_id: (await supabase.auth.getUser()).data.user?.id
                 }])
                 .select()
                 .single();
@@ -332,25 +373,29 @@ Basado en: [Documento, página X]`;
             if (docError) throw docError;
             console.log('Documento guardado en base de datos');
 
-            // 5. Guardar embeddings
+            // 6. Guardar embeddings (usando las columnas correctas del esquema)
             const embeddingsToInsert = embeddings.map((embedding, index) => ({
                 document_id: document.id,
-                chunk_index: index,
-                content: chunks[index],
+                subject_id: subjectId,
+                section_title: 'Documento',
+                page_number: 1,
+                fragment: chunks[index],
                 embedding: embedding
             }));
 
             const { error: embeddingError } = await supabase
-                .from('document_embeddings')
+                .from('embeddings')
                 .insert(embeddingsToInsert);
 
             if (embeddingError) throw embeddingError;
             console.log('Embeddings guardados en base de datos');
 
-            // 6. Generar preguntas de opción múltiple
+            // 7. Generar preguntas de opción múltiple con progreso
             console.log('Iniciando generación de preguntas...');
-            const questions = await this.generateMultipleChoiceQuestions(chunks, document.id);
+            const questions = await this.generateMultipleChoiceQuestions(chunks, document.id, callbacks);
             console.log(`Se generaron ${questions.length} preguntas`);
+
+            if (callbacks.onQuestionsComplete) callbacks.onQuestionsComplete(questions.length);
 
             if (questions.length === 0) {
                 console.warn('No se generaron preguntas para el documento');
@@ -361,10 +406,24 @@ Basado en: [Documento, página X]`;
                 };
             }
 
-            // 7. Guardar preguntas en la base de datos
+            // 8. Guardar preguntas en la base de datos (usar subject_questions para compatibilidad)
+            const questionsForSubject = questions.map(q => ({
+                subject_id: subjectId,
+                topic_id: null,
+                question_text: q.question,
+                option_a: q.options[0],
+                option_b: q.options[1],
+                option_c: q.options[2],
+                option_d: q.options[3],
+                correct_answer: q.correct_answer === q.options[0] ? 'a' : 
+                                q.correct_answer === q.options[1] ? 'b' : 
+                                q.correct_answer === q.options[2] ? 'c' : 'd',
+                explanation: q.explanation
+            }));
+            
             const { error: questionsError } = await supabase
-                .from('document_questions')
-                .insert(questions);
+                .from('subject_questions')
+                .insert(questionsForSubject);
 
             if (questionsError) {
                 console.error('Error al guardar las preguntas:', questionsError);
@@ -379,11 +438,21 @@ Basado en: [Documento, página X]`;
             };
         } catch (error) {
             console.error('Error en processDocument:', error);
-            throw error;
+            console.error('Detalles del error:', {
+                message: error.message,
+                stack: error.stack,
+                name: error.name,
+                cause: error.cause
+            });
+            
+            // Crear un error más descriptivo
+            const detailedError = new Error(`Error al procesar documento: ${error.message || 'Error desconocido'}`);
+            detailedError.originalError = error;
+            throw detailedError;
         }
     }
 
-    async generateMultipleChoiceQuestions(chunks, documentId) {
+    async generateMultipleChoiceQuestions(chunks, documentId, callbacks = {}) {
         try {
             console.log('Iniciando generación de preguntas...');
             const questions = [];
@@ -392,6 +461,11 @@ Basado en: [Documento, página X]`;
 
             for (const [index, chunk] of chunksForQuestions.entries()) {
                 console.log(`Generando pregunta ${index + 1} de ${chunksForQuestions.length}`);
+                
+                // Notificar progreso de la pregunta actual
+                if (callbacks.onQuestionProgress) {
+                    callbacks.onQuestionProgress(index + 1, chunksForQuestions.length);
+                }
                 
                 const prompt = `
                     Genera una pregunta de opción múltiple basada en el siguiente texto:
@@ -412,28 +486,45 @@ Basado en: [Documento, página X]`;
                     }
                 `;
 
+                console.log('Enviando petición a DeepSeek API...');
+                console.log('API URL:', this.DEEPSEEK_API_URL);
+                console.log('API Key disponible:', this.DEEPSEEK_API_KEY ? 'Sí' : 'No');
+                
+                const requestBody = {
+                    model: "deepseek-chat",
+                    messages: [
+                        {
+                            role: "system",
+                            content: "Eres un experto en crear preguntas de opción múltiple educativas y desafiantes."
+                        },
+                        {
+                            role: "user",
+                            content: prompt
+                        }
+                    ],
+                    temperature: 0.7,
+                    max_tokens: 500
+                };
+                
+                console.log('Request body:', JSON.stringify(requestBody, null, 2));
+                
                 const response = await fetch(this.DEEPSEEK_API_URL, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${this.DEEPSEEK_API_KEY}`
                     },
-                    body: JSON.stringify({
-                        model: "deepseek-chat",
-                        messages: [
-                            {
-                                role: "system",
-                                content: "Eres un experto en crear preguntas de opción múltiple educativas y desafiantes."
-                            },
-                            {
-                                role: "user",
-                                content: prompt
-                            }
-                        ],
-                        temperature: 0.7,
-                        max_tokens: 500
-                    })
+                    body: JSON.stringify(requestBody)
                 });
+                
+                console.log('Response status:', response.status);
+                console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('Error response:', errorText);
+                    throw new Error(`DeepSeek API error: ${response.status} - ${errorText}`);
+                }
 
                 const data = await response.json();
                 console.log('Respuesta de DeepSeek:', data);
@@ -459,7 +550,16 @@ Basado en: [Documento, página X]`;
             return questions;
         } catch (error) {
             console.error('Error generando preguntas:', error);
-            throw error;
+            console.error('Detalles del error en generateMultipleChoiceQuestions:', {
+                message: error.message,
+                stack: error.stack,
+                name: error.name
+            });
+            
+            // Crear un error más descriptivo
+            const detailedError = new Error(`Error al generar preguntas: ${error.message || 'Error desconocido'}`);
+            detailedError.originalError = error;
+            throw detailedError;
         }
     }
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { supabase } from '../../config';
+import { supabase } from '../../config/supabaseClient';
 import { deepseekService } from '../../services/deepseek.service';
 import { ragService } from '../../services/rag.service';
 import { Subjects } from './Subjects';
@@ -24,6 +24,7 @@ const Dashboard = () => {
     const [ragChatHistory, setRagChatHistory] = useState([]);
     const [isRagProcessing, setIsRagProcessing] = useState(false);
     const [subjectStats, setSubjectStats] = useState([]);
+    const [updateNotification, setUpdateNotification] = useState(null);
 
     useEffect(() => {
         if (!authLoading && !user) {
@@ -38,18 +39,41 @@ const Dashboard = () => {
         }
     }, [user]);
 
+    // Actualizar materias cuando se cambie a la pestaña Syllabus o cuando se active la pestaña
+    useEffect(() => {
+        if (user && (activeTab === 'Syllabus' || activeTab === 'assistant' || activeTab === 'files')) {
+            fetchSubjects();
+        }
+    }, [user, activeTab]);
+
     const fetchSubjects = async () => {
         try {
+            console.log('[Dashboard] Actualizando lista de materias...');
             const { data, error } = await supabase
                 .from('subjects')
                 .select('*')
                 .eq('professor_id', user.id)
                 .order('created_at', { ascending: false });
+            
+            if (error) {
+                console.error('[Dashboard] Error al cargar materias:', error);
+                setSubjects([]);
+                return;
+            }
+            
+            console.log('[Dashboard] Materias cargadas:', data?.length || 0, 'materias');
             setSubjects(data || []);
+            
             if (data && data.length > 0 && !selectedSubjectId) {
                 setSelectedSubjectId(data[0].id);
+                console.log('[Dashboard] Materia seleccionada automáticamente:', data[0].name);
             }
+            
+            // Mostrar notificación de actualización
+            setUpdateNotification('Lista de materias actualizada');
+            setTimeout(() => setUpdateNotification(null), 3000);
         } catch (error) {
+            console.error('[Dashboard] Error en fetchSubjects:', error);
             setSubjects([]);
         }
     };
@@ -94,6 +118,18 @@ const Dashboard = () => {
         }
     };
 
+    const handleLogout = async () => {
+        try {
+            console.log('Iniciando proceso de logout...');
+            await logout();
+            console.log('Logout exitoso, redirigiendo...');
+            // La redirección se maneja automáticamente por el useEffect
+        } catch (error) {
+            console.error('Error durante el logout:', error);
+            alert('Error al cerrar sesión. Por favor, intenta de nuevo.');
+        }
+    };
+
     // Función para actualizar materias tras crear una nueva
     const handleSubjectCreated = () => {
         fetchSubjects();
@@ -115,7 +151,7 @@ const Dashboard = () => {
                     <h1>Bienvenido, {user.full_name || user.email}</h1>
                     <p>{user.email}</p>
                 </div>
-                <button className="logout-button" onClick={logout}>
+                <button className="logout-button" onClick={handleLogout}>
                     Cerrar Sesión
                 </button>
             </header>
@@ -167,11 +203,27 @@ const Dashboard = () => {
                             </button>
                         </li>
                     </ul>
-                    <button className="logout-button" onClick={logout}>
+                    <button className="logout-button" onClick={handleLogout}>
                         Cerrar Sesión
                     </button>
                 </nav>
                 <main className="dashboard-main">
+                    {updateNotification && (
+                        <div style={{
+                            position: 'fixed',
+                            top: '20px',
+                            right: '20px',
+                            backgroundColor: '#28a745',
+                            color: 'white',
+                            padding: '12px 20px',
+                            borderRadius: '4px',
+                            zIndex: 1000,
+                            boxShadow: '0 2px 10px rgba(0,0,0,0.1)'
+                        }}>
+                            {updateNotification}
+                        </div>
+                    )}
+                    
                     {activeTab === 'dashboard' && (
                         <div className="professor-dashboard-indicators">
                             <h2>Indicadores del Profesor</h2>
@@ -429,7 +481,23 @@ const Dashboard = () => {
                     )}
                     {activeTab === 'Syllabus' && (
                         <div className="syllabus-section">
-                            <h2>Cargar Silabo</h2>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                                <h2>Cargar Silabo</h2>
+                                <button 
+                                    onClick={fetchSubjects}
+                                    style={{
+                                        padding: '8px 16px',
+                                        backgroundColor: '#007bff',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer',
+                                        fontSize: '14px'
+                                    }}
+                                >
+                                    🔄 Actualizar Materias
+                                </button>
+                            </div>
                             <SyllabusUpload 
                                 subjectId={selectedSubjectId} 
                                 setSubjectId={setSelectedSubjectId}

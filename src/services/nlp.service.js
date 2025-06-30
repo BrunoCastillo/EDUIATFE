@@ -68,6 +68,7 @@ class NLPService {
             await this.saveEmbeddingsBySection(documentId, jsonResult);
 
             // Generar preguntas usando el servicio RAG con el texto extraído
+            // NOTA: Usar processDocumentWithText porque este flujo ya procesó el texto
             await ragService.processDocumentWithText(fullText, documentId);
 
             return jsonResult;

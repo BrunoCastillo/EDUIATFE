@@ -26,13 +26,26 @@ export const AuthProvider = ({ children }) => {
         return () => subscription.unsubscribe();
     }, []);
 
+    const signOut = async () => {
+        try {
+            const { error } = await supabase.auth.signOut();
+            if (error) throw error;
+            setUser(null);
+            setSession(null);
+        } catch (error) {
+            console.error('Error al cerrar sesión:', error);
+            throw error;
+        }
+    };
+
     const value = {
         session,
         user,
         loading,
         signUp: (data) => supabase.auth.signUp(data),
         signIn: (data) => supabase.auth.signInWithPassword(data),
-        signOut: () => supabase.auth.signOut(),
+        signOut: signOut,
+        logout: signOut, // Alias para mantener compatibilidad
     };
 
     return (

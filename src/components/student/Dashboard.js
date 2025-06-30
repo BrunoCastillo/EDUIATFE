@@ -6,7 +6,7 @@ import { ragService } from '../../services/rag.service';
 import { subjectService } from '../../services/subject.service';
 import Chat from './Chat';
 import IntroScreen from '../IntroScreen';
-import PDFUpload from './PDFUpload';
+
 import Evaluations from './Evaluations';
 import './Dashboard.css';
 
@@ -101,6 +101,12 @@ const StudentDashboard = () => {
 
             console.log('Materias formateadas:', formattedSubjects);
             setEnrolledSubjects(formattedSubjects);
+            
+            // Si la materia seleccionada ya no está en la lista, limpiar la selección
+            if (selectedSubjectId && !formattedSubjects.some(s => s.id === selectedSubjectId)) {
+                setSelectedSubjectId('');
+                setChatHistory([]);
+            }
         } catch (error) {
             console.error('Error al cargar asignaturas inscritas:', error);
             setNotification({
@@ -188,18 +194,61 @@ const StudentDashboard = () => {
 
     const fetchStudentProgress = async () => {
         try {
-            const progressData = await subjectService.getStudentProgressByUser(user.id);
-            // Agrupar por materia
+            console.log('[Dashboard] Obteniendo progreso del estudiante:', user.id);
+            
+            // Obtener todas las inscripciones del estudiante con sus materias
+            const { data: enrollments, error: enrollmentsError } = await supabase
+                .from('students_subjects')
+                .select(`
+                    id,
+                    subject_id,
+                    subjects (
+                        id,
+                        name
+                    )
+                `)
+                .eq('student_id', user.id);
+
+            if (enrollmentsError) {
+                console.error('Error al obtener inscripciones:', enrollmentsError);
+                throw enrollmentsError;
+            }
+
+            console.log('[Dashboard] Inscripciones encontradas:', enrollments);
+
+            if (!enrollments || enrollments.length === 0) {
+                setProgressBySubject({});
+                return;
+            }
+
+            // Obtener el progreso para cada inscripción
+            const enrollmentIds = enrollments.map(e => e.id);
+            const { data: progressData, error: progressError } = await supabase
+                .from('student_progress')
+                .select('*')
+                .in('student_subject_id', enrollmentIds)
+                .order('completion_date', { ascending: false });
+
+            if (progressError) {
+                console.error('Error al obtener progreso:', progressError);
+                throw progressError;
+            }
+
+            console.log('[Dashboard] Datos de progreso obtenidos:', progressData);
+
+            // Agrupar progreso por materia
             const progressMap = {};
-            progressData.forEach(row => {
-                const subjectId = enrolledSubjects.find(s => s.id === row.student_subject_id)?.id;
-                if (!subjectId) return;
-                if (!progressMap[subjectId]) progressMap[subjectId] = [];
-                progressMap[subjectId].push(row);
+            enrollments.forEach(enrollment => {
+                const subjectId = enrollment.subject_id;
+                const subjectProgress = progressData.filter(p => p.student_subject_id === enrollment.id);
+                progressMap[subjectId] = subjectProgress;
             });
+
+            console.log('[Dashboard] Progreso agrupado por materia:', progressMap);
             setProgressBySubject(progressMap);
         } catch (err) {
             console.error('Error al obtener el progreso del estudiante:', err);
+            setProgressBySubject({});
         }
     };
 
@@ -278,8 +327,10 @@ const StudentDashboard = () => {
 
             console.log('Inscripción exitosa:', enrollment);
 
-            // Actualizar la lista de materias
+            // Actualizar ambas listas de materias y el progreso
+            await fetchEnrolledSubjects();
             await fetchAvailableSubjects();
+            await fetchStudentProgress();
             setNotification({
                 type: 'success',
                 message: 'Inscripción exitosa'
@@ -295,6 +346,8 @@ const StudentDashboard = () => {
 
     const handleUnenroll = async (subjectId) => {
         try {
+            console.log('Iniciando desinscripción para subjectId:', subjectId);
+            
             const { data, error: unenrollError } = await supabase
                 .from('students_subjects')
                 .delete()
@@ -309,6 +362,8 @@ const StudentDashboard = () => {
                 console.error('Error detallado:', unenrollError);
                 if (unenrollError.code === '42501') {
                     throw new Error('No tienes permisos para realizar esta acción.');
+                } else if (unenrollError.code === 'PGRST116') {
+                    throw new Error('No estás inscrito en esta materia.');
                 } else {
                     throw new Error(`Error al desinscribirse: ${unenrollError.message}`);
                 }
@@ -318,12 +373,23 @@ const StudentDashboard = () => {
                 throw new Error('No se pudo completar la desinscripción.');
             }
 
+            console.log('Desinscripción exitosa:', data);
+
+            // Actualizar todas las listas y el progreso
             await fetchEnrolledSubjects();
             await fetchAvailableSubjects();
-            alert('Desinscripción exitosa');
+            await fetchStudentProgress();
+            
+            setNotification({
+                type: 'success',
+                message: 'Te has desinscrito exitosamente de la materia'
+            });
         } catch (error) {
             console.error('Error al desinscribirse:', error);
-            setError(error.message);
+            setNotification({
+                type: 'error',
+                message: error.message
+            });
         }
     };
 
@@ -543,14 +609,7 @@ const StudentDashboard = () => {
                             Inscribirse
                         </button>
                     </li>
-                    <li>
-                        <button 
-                            className={activeTab === 'progress' ? 'active' : ''}
-                            onClick={() => setActiveTab('progress')}
-                        >
-                            Progreso
-                        </button>
-                    </li>
+
                     <li>
                         <button 
                             className={activeTab === 'evaluations' ? 'active' : ''}
@@ -559,14 +618,7 @@ const StudentDashboard = () => {
                             Evaluaciones
                         </button>
                     </li>
-                    <li>
-                        <button 
-                            className={activeTab === 'documents' ? 'active' : ''}
-                            onClick={() => setActiveTab('documents')}
-                        >
-                            Documentos
-                        </button>
-                    </li>
+
                 </ul>
                 <button className="logout-button" onClick={handleLogout}>
                     Cerrar Sesión
@@ -603,30 +655,74 @@ const StudentDashboard = () => {
                                 ) : (
                                     enrolledSubjects.map((subject) => {
                                         const progressList = progressBySubject[subject.id] || [];
-                                        const avgCompletion = progressList.length > 0 ? Math.round(progressList.reduce((acc, p) => acc + (p.completion_percentage || 0), 0) / progressList.length) : 0;
-                                        const avgScore = progressList.length > 0 ? (progressList.reduce((acc, p) => acc + (p.assessment_score || 0), 0) / progressList.length).toFixed(2) : '0.00';
+                                        const completedEvaluations = progressList.filter(p => p.status === 'completado').length;
+                                        const avgScore = progressList.length > 0 ? 
+                                            (progressList.reduce((acc, p) => acc + (p.assessment_score || 0), 0) / progressList.length) : 0;
+                                        const lastEvaluation = progressList.length > 0 ? progressList[0] : null;
+                                        
                                         return (
                                             <div className="progress-card" key={subject.id}>
                                                 <h4>{subject.name}</h4>
-                                                <div className="progress-bar">
-                                                    <div className="progress-fill" style={{ width: `${avgCompletion}%` }}></div>
+                                                <div className="progress-stats">
+                                                    <div className="stat-item">
+                                                        <span className="stat-label">Evaluaciones completadas:</span>
+                                                        <span className="stat-value">{completedEvaluations}</span>
+                                                    </div>
+                                                    <div className="stat-item">
+                                                        <span className="stat-label">Nota promedio:</span>
+                                                        <span className="stat-value">{avgScore.toFixed(1)}%</span>
+                                                    </div>
+                                                    {lastEvaluation && (
+                                                        <div className="stat-item">
+                                                            <span className="stat-label">Última evaluación:</span>
+                                                            <span className="stat-value">
+                                                                {new Date(lastEvaluation.completion_date).toLocaleDateString()} 
+                                                                ({lastEvaluation.assessment_score?.toFixed(1)}%)
+                                                            </span>
+                                                        </div>
+                                                    )}
                                                 </div>
-                                                <p>{avgCompletion}% completado</p>
-                                                <p>Nota promedio: {avgScore}</p>
+                                                <div className="progress-bar">
+                                                    <div className="progress-fill" style={{ 
+                                                        width: `${Math.min(avgScore, 100)}%`,
+                                                        backgroundColor: avgScore >= 70 ? '#4CAF50' : avgScore >= 50 ? '#FF9800' : '#f44336'
+                                                    }}></div>
+                                                </div>
                                                 <button className="expand-history-btn" onClick={() => setExpandedSubject(expandedSubject === subject.id ? null : subject.id)}>
                                                     {expandedSubject === subject.id ? 'Ocultar historial' : 'Ver historial'}
                                                 </button>
                                                 {expandedSubject === subject.id && progressList.length > 0 && (
                                                     <div className="progress-history">
                                                         <h5>Historial de Evaluaciones</h5>
-                                                        <ul>
+                                                        <div className="evaluation-history">
                                                             {progressList.map((p, idx) => (
-                                                                <li key={idx}>
-                                                                    <span>Fecha: {p.completion_date ? new Date(p.completion_date).toLocaleDateString() : '-'}</span> | 
-                                                                    <span>Nota: {p.assessment_score?.toFixed(2) ?? '-'}</span>
-                                                                </li>
+                                                                <div key={idx} className="evaluation-item">
+                                                                    <div className="evaluation-date">
+                                                                        {p.completion_date ? new Date(p.completion_date).toLocaleDateString('es-ES', {
+                                                                            year: 'numeric',
+                                                                            month: 'long',
+                                                                            day: 'numeric',
+                                                                            hour: '2-digit',
+                                                                            minute: '2-digit'
+                                                                        }) : 'Fecha no disponible'}
+                                                                    </div>
+                                                                    <div className="evaluation-score">
+                                                                        <span className={`score ${p.assessment_score >= 70 ? 'good' : p.assessment_score >= 50 ? 'average' : 'poor'}`}>
+                                                                            {p.assessment_score?.toFixed(1) ?? '0'}%
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="evaluation-status">
+                                                                        {p.status === 'completado' ? '✅ Completado' : '⏳ En progreso'}
+                                                                    </div>
+                                                                </div>
                                                             ))}
-                                                        </ul>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                {progressList.length === 0 && (
+                                                    <div className="no-evaluations">
+                                                        <p>No has completado evaluaciones en esta materia.</p>
+                                                        <p>Ve a la sección "Evaluaciones" para comenzar.</p>
                                                     </div>
                                                 )}
                                             </div>
@@ -695,7 +791,7 @@ const StudentDashboard = () => {
                                     <p>Este asistente puede ayudarte a:</p>
                                     <ul>
                                         <li>Responder preguntas sobre el contenido de tus materias</li>
-                                        <li>Buscar información específica en tus documentos</li>
+                                        <li>Buscar información específica en el contenido de las materias</li>
                                         <li>Explicar conceptos de manera detallada</li>
                                         <li>Proporcionar ejemplos y casos prácticos</li>
                                     </ul>
@@ -708,7 +804,7 @@ const StudentDashboard = () => {
                                     <p>Puedes hacer preguntas sobre:</p>
                                     <ul>
                                         <li>Contenido de la materia</li>
-                                        <li>Documentos cargados</li>
+                                        <li>Material de estudio</li>
                                         <li>Conceptos específicos</li>
                                         <li>Ejemplos y ejercicios</li>
                                     </ul>
@@ -770,15 +866,44 @@ const StudentDashboard = () => {
                 {activeTab === 'subjects' && (
                     <div className="subjects-section">
                         <h2>Mis Asignaturas</h2>
-                        <div className="subjects-grid">
-                            {enrolledSubjects.map((subject) => (
-                                <div key={subject.id} className="subject-card">
-                                    <h4>{subject.name}</h4>
-                                    <p>Profesor: {subject.professor.name}</p>
-                                    <button>Ver Detalles</button>
-                                </div>
-                            ))}
-                        </div>
+                        {enrolledSubjects.length === 0 ? (
+                            <p>No tienes materias inscritas. Ve a la sección "Inscribirse" para inscribirte en una materia.</p>
+                        ) : (
+                            <div className="subjects-grid">
+                                {enrolledSubjects.map((subject) => (
+                                    <div key={subject.id} className="subject-card">
+                                        <div className="subject-info">
+                                            <h4>{subject.name}</h4>
+                                            <p>Profesor: {subject.professor?.name || 'No asignado'}</p>
+                                            {subject.description && (
+                                                <p className="subject-description">{subject.description}</p>
+                                            )}
+                                        </div>
+                                        <div className="subject-actions">
+                                            <button 
+                                                className="unenroll-button"
+                                                onClick={() => {
+                                                    if (window.confirm(`¿Estás seguro de que deseas desinscribirte de "${subject.name}"?`)) {
+                                                        handleUnenroll(subject.id);
+                                                    }
+                                                }}
+                                                style={{
+                                                    backgroundColor: '#dc3545',
+                                                    color: 'white',
+                                                    border: 'none',
+                                                    padding: '8px 16px',
+                                                    borderRadius: '4px',
+                                                    cursor: 'pointer',
+                                                    fontSize: '14px'
+                                                }}
+                                            >
+                                                Desinscribirse
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -824,12 +949,10 @@ const StudentDashboard = () => {
                 )}
 
                 {activeTab === 'evaluations' && (
-                    <Evaluations />
+                    <Evaluations onProgressUpdate={fetchStudentProgress} />
                 )}
 
-                {activeTab === 'documents' && (
-                    <PDFUpload />
-                )}
+
             </main>
         </div>
     );

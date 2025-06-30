@@ -89,10 +89,18 @@ export const Subjects = () => {
     const handleEditSubject = async (subjectData) => {
         try {
             setError(null);
+            console.log('Iniciando actualización de asignatura:', { subjectId: editingSubject.id, subjectData });
+            
             const updatedSubject = await subjectService.updateSubject(editingSubject.id, subjectData);
-            setSubjects(subjects.map(subject => 
+            console.log('Asignatura actualizada exitosamente:', updatedSubject);
+            
+            // Actualizar la lista local
+            const updatedSubjects = subjects.map(subject => 
                 subject.id === updatedSubject.id ? updatedSubject : subject
-            ));
+            );
+            console.log('Lista de asignaturas actualizada:', updatedSubjects);
+            
+            setSubjects(updatedSubjects);
             setEditingSubject(null);
             setShowForm(false);
             setNotification({
@@ -121,6 +129,8 @@ export const Subjects = () => {
         }
 
         try {
+            console.log('Iniciando eliminación de asignatura:', subjectId);
+            
             // Primero eliminar todos los documentos asociados
             const { error: documentsError } = await supabase
                 .from('files')
@@ -132,22 +142,25 @@ export const Subjects = () => {
                 throw new Error('Error al eliminar los documentos asociados');
             }
 
-            // Luego eliminar la asignatura
-            const { error: subjectError } = await subjectService.deleteSubject(subjectId);
+            // Luego eliminar la asignatura usando el servicio
+            await subjectService.deleteSubject(subjectId, professorId);
             
-            if (subjectError) {
-                console.error('Error al eliminar asignatura:', subjectError);
-                throw new Error('Error al eliminar la asignatura');
-            }
-
-            // Actualizar la lista de asignaturas
-            fetchSubjects();
+            // Actualizar la lista de asignaturas localmente
+            setSubjects(subjects.filter(subject => subject.id !== subjectId));
             
             // Mostrar mensaje de éxito
-            alert('Asignatura eliminada exitosamente');
+            setNotification({
+                type: 'success',
+                message: 'Asignatura eliminada exitosamente'
+            });
+            
+            console.log('Asignatura eliminada exitosamente');
         } catch (error) {
             console.error('Error al eliminar asignatura:', error);
-            alert('Error al eliminar la asignatura: ' + error.message);
+            setNotification({
+                type: 'error',
+                message: 'Error al eliminar la asignatura: ' + error.message
+            });
         }
     };
 
@@ -215,6 +228,7 @@ export const Subjects = () => {
                         setEditingSubject(null);
                     }}
                     initialData={editingSubject}
+                    subjects={subjects}
                 />
             )}
 

@@ -34,6 +34,16 @@ const FileUpload = ({ subjectId, session: sessionProp }) => {
     const [questionLogs, setQuestionLogs] = useState([]);
     const [loading, setLoading] = useState(false);
     const [notification, setNotification] = useState(null);
+    
+    // Nuevos estados para barra de progreso detallada
+    const [questionProgress, setQuestionProgress] = useState({
+        currentFile: '',
+        currentStep: '',
+        progress: 0,
+        totalFiles: 0,
+        processedFiles: 0,
+        steps: []
+    });
 
     useEffect(() => {
         checkAuth();
@@ -256,7 +266,7 @@ const FileUpload = ({ subjectId, session: sessionProp }) => {
 
                 setProgress(prev => ({ ...prev, [fileName]: 100 }));
 
-                // === Generar preguntas solo para archivos de texto (PDF, Word, PowerPoint) ===
+                // === Procesar archivos con RAG (Embeddings + Preguntas) ===
                 const validTextTypes = [
                     'application/pdf',
                     'application/msword',
@@ -265,55 +275,145 @@ const FileUpload = ({ subjectId, session: sessionProp }) => {
                     'application/vnd.openxmlformats-officedocument.presentationml.presentation'
                 ];
                 if (validTextTypes.includes(file.type)) {
+                    // Configurar progreso inicial con pasos detallados
+                    setQuestionProgress({
+                        currentFile: file.name,
+                        currentStep: 'Iniciando procesamiento completo...',
+                        progress: 0,
+                        totalFiles: files.filter(f => validTextTypes.includes(f.type)).length,
+                        processedFiles: i,
+                        steps: [
+                            'Extrayendo texto del archivo',
+                            'Procesando texto (eliminando stopwords)',
+                            'Dividiendo en chunks',
+                            'Generando embeddings',
+                            'Generando preguntas con IA',
+                            'Guardando en base de datos'
+                        ]
+                    });
+                    
                     setIsGeneratingQuestions(true);
                     setQuestionsStatus('generando');
                     // Mostrar log de inicio
-                    setQuestionLogs(prev => ([...prev, { fileName: file.name, status: 'generando', message: 'Generando preguntas para ' + file.name + '...' }]));
+                    setQuestionLogs(prev => ([...prev, { fileName: file.name, status: 'generando', message: 'Procesando documento completo: ' + file.name + '...' }]));
+                    
                     try {
-                        // Extraer texto del archivo
-                        const text = await syllabusService.extractTextFromFile(file);
-                        // Construir un objeto de "tema único" para DeepSeek
-                        const topics = [{ number: 1, title: file.name, content: text, subtopics: [] }];
-                        // Generar preguntas
-                        const questions = await deepseekService.generateQuestions(topics);
-                        // Guardar preguntas en la base de datos
-                        const questionsToInsert = questions.map(q => ({
-                            subject_id: subjectId,
-                            topic_id: null, // No hay topic_id porque no es sílabo
-                            question_text: q.question,
-                            option_a: q.options.a,
-                            option_b: q.options.b,
-                            option_c: q.options.c,
-                            option_d: q.options.d,
-                            correct_answer: q.correct_answer,
-                            explanation: q.explanation
-                        }));
-                        const { data, error } = await supabase
-                            .from('subject_questions')
-                            .insert(questionsToInsert)
-                            .select();
-                        if (error) {
-                            setQuestionsStatus('error');
-                            setQuestionsError('Error al guardar preguntas: ' + error.message);
-                            // Log de error
-                            setQuestionLogs(prev => ([...prev, { fileName: file.name, status: 'error', message: 'Error al guardar preguntas para ' + file.name + ': ' + error.message }]));
-                            throw error;
-                        }
-                        // Acumular preguntas por archivo
-                        setGeneratedQuestions(prev => ([
+                        // Paso 1: Extraer texto del archivo (0-10%)
+                        setQuestionProgress(prev => ({
                             ...prev,
-                            { fileName: file.name, questions: data }
-                        ]));
+                            currentStep: 'Extrayendo texto del archivo...',
+                            progress: 5
+                        }));
+                        
+                        // Usar ragService que maneja todo el proceso
+                        const result = await ragService.processDocument(file, subjectId, {
+                            onTextExtracted: () => {
+                                setQuestionProgress(prev => ({
+                                    ...prev,
+                                    currentStep: 'Texto extraído, procesando contenido...',
+                                    progress: 10
+                                }));
+                            },
+                            onTextProcessed: (stats) => {
+                                setQuestionProgress(prev => ({
+                                    ...prev,
+                                    currentStep: `Texto procesado: ${stats.originalWords} palabras → ${stats.filteredWords} palabras (${stats.removedStopwords} stopwords eliminadas)`,
+                                    progress: 20
+                                }));
+                            },
+                            onChunksCreated: (chunkCount) => {
+                                setQuestionProgress(prev => ({
+                                    ...prev,
+                                    currentStep: `Texto dividido en ${chunkCount} chunks para procesamiento`,
+                                    progress: 30
+                                }));
+                            },
+                            onEmbeddingsStart: () => {
+                                setQuestionProgress(prev => ({
+                                    ...prev,
+                                    currentStep: 'Generando embeddings para búsqueda semántica...',
+                                    progress: 40
+                                }));
+                            },
+                            onEmbeddingsComplete: () => {
+                                setQuestionProgress(prev => ({
+                                    ...prev,
+                                    currentStep: 'Embeddings generados, iniciando creación de preguntas...',
+                                    progress: 50
+                                }));
+                            },
+                            onQuestionProgress: (current, total) => {
+                                const questionProgress = 50 + ((current / total) * 40); // 50% a 90%
+                                setQuestionProgress(prev => ({
+                                    ...prev,
+                                    currentStep: `Generando pregunta ${current} de ${total} con IA...`,
+                                    progress: questionProgress
+                                }));
+                            },
+                            onQuestionsComplete: (questionCount) => {
+                                setQuestionProgress(prev => ({
+                                    ...prev,
+                                    currentStep: `${questionCount} preguntas generadas, guardando en base de datos...`,
+                                    progress: 95
+                                }));
+                            }
+                        });
+                        
+                        // Completado
+                        setQuestionProgress(prev => ({
+                            ...prev,
+                            currentStep: `¡Procesamiento completado! ${result.questionsCount} preguntas generadas`,
+                            progress: 100,
+                            processedFiles: prev.processedFiles + 1
+                        }));
+                        
+                        // Simular las preguntas para mostrar en la UI (ya están guardadas por ragService)
+                        if (result.questionsCount > 0) {
+                            // Obtener las preguntas recién creadas
+                            const { data: savedQuestions } = await supabase
+                                .from('subject_questions')
+                                .select('*')
+                                .eq('subject_id', subjectId)
+                                .order('created_at', { ascending: false })
+                                .limit(result.questionsCount);
+                                
+                            setGeneratedQuestions(prev => ([
+                                ...prev,
+                                { fileName: file.name, questions: savedQuestions || [] }
+                            ]));
+                        }
+                        
                         setQuestionsStatus('exito');
                         // Log de éxito
-                        setQuestionLogs(prev => ([...prev, { fileName: file.name, status: 'exito', message: '¡Preguntas generadas y guardadas para ' + file.name + '!' }]));
+                        setQuestionLogs(prev => ([...prev, { fileName: file.name, status: 'exito', message: `¡Documento procesado exitosamente! ${result.questionsCount} preguntas generadas para ${file.name}` }]));
+                        
                     } catch (err) {
                         setQuestionsStatus('error');
-                        setQuestionsError('Error al generar preguntas: ' + (err.message || err));
+                        setQuestionsError('Error al procesar documento: ' + (err.message || err));
                         // Log de error
-                        setQuestionLogs(prev => ([...prev, { fileName: file.name, status: 'error', message: 'Error al generar preguntas para ' + file.name + ': ' + (err.message || err) }]));
+                        setQuestionLogs(prev => ([...prev, { fileName: file.name, status: 'error', message: 'Error al procesar documento ' + file.name + ': ' + (err.message || err) }]));
+                        
+                        // Actualizar progreso con error
+                        setQuestionProgress(prev => ({
+                            ...prev,
+                            currentStep: 'Error en el procesamiento',
+                            progress: 100
+                        }));
                     } finally {
-                        setIsGeneratingQuestions(false);
+                        // Si es el último archivo, cerrar el modal después de 3 segundos
+                        if (i === files.length - 1) {
+                            setTimeout(() => {
+                                setIsGeneratingQuestions(false);
+                                setQuestionProgress({
+                                    currentFile: '',
+                                    currentStep: '',
+                                    progress: 0,
+                                    totalFiles: 0,
+                                    processedFiles: 0,
+                                    steps: []
+                                });
+                            }, 3000);
+                        }
                     }
                 }
             }
@@ -401,6 +501,92 @@ const FileUpload = ({ subjectId, session: sessionProp }) => {
     const previousPage = () => changePage(-1);
     const nextPage = () => changePage(1);
 
+    // Componente del Modal de Progreso
+    const ProgressModal = () => {
+        if (!isGeneratingQuestions) return null;
+
+        const progressPercentage = questionProgress.progress;
+        const overallProgress = questionProgress.totalFiles > 0 
+            ? ((questionProgress.processedFiles / questionProgress.totalFiles) * 100) 
+            : 0;
+
+        return (
+            <div className="progress-modal-overlay">
+                <div className="progress-modal">
+                    <div className="progress-modal-header">
+                        <h3>🤖 Generando Preguntas con IA</h3>
+                        <p>Por favor espera mientras procesa los archivos...</p>
+                    </div>
+                    
+                    <div className="progress-modal-content">
+                        <div className="current-file">
+                            <strong>Archivo actual:</strong> {questionProgress.currentFile}
+                        </div>
+                        
+                        <div className="current-step">
+                            <strong>Estado:</strong> {questionProgress.currentStep}
+                        </div>
+                        
+                        <div className="progress-section">
+                            <div className="progress-label">
+                                Progreso del archivo actual: {progressPercentage}%
+                            </div>
+                            <div className="progress-bar">
+                                <div 
+                                    className="progress-fill" 
+                                    style={{ width: `${progressPercentage}%` }}
+                                ></div>
+                            </div>
+                        </div>
+                        
+                        {questionProgress.totalFiles > 1 && (
+                            <div className="progress-section">
+                                <div className="progress-label">
+                                    Progreso general: {questionProgress.processedFiles} de {questionProgress.totalFiles} archivos
+                                </div>
+                                <div className="progress-bar">
+                                    <div 
+                                        className="progress-fill overall" 
+                                        style={{ width: `${overallProgress}%` }}
+                                    ></div>
+                                </div>
+                            </div>
+                        )}
+                        
+                        <div className="progress-steps">
+                            {questionProgress.steps.map((step, index) => {
+                                const stepThreshold = (index + 1) * (100 / questionProgress.steps.length);
+                                const isCompleted = progressPercentage >= stepThreshold;
+                                const isActive = progressPercentage > (index * (100 / questionProgress.steps.length)) && progressPercentage < stepThreshold;
+                                
+                                return (
+                                    <div 
+                                        key={index} 
+                                        className={`progress-step ${
+                                            isCompleted ? 'completed' : ''
+                                        } ${
+                                            isActive ? 'active' : ''
+                                        }`}
+                                    >
+                                        <div className="step-number">{index + 1}</div>
+                                        <div className="step-text">{step}</div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                    
+                    <div className="progress-modal-footer">
+                        <div className="loading-animation">
+                            <div className="spinner"></div>
+                            <span>Procesando...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     if (isLoading) {
         return (
             <div className="file-upload-container">
@@ -451,10 +637,10 @@ const FileUpload = ({ subjectId, session: sessionProp }) => {
                 />
                 <button 
                     onClick={handleUpload}
-                    disabled={uploading || files.length === 0}
+                    disabled={uploading || files.length === 0 || isGeneratingQuestions}
                     className="upload-button"
                 >
-                    {uploading ? 'Subiendo...' : 'Subir archivos'}
+                    {isGeneratingQuestions ? 'Procesando...' : (uploading ? 'Subiendo...' : 'Subir y procesar')}
                 </button>
             </div>
 
@@ -620,6 +806,9 @@ const FileUpload = ({ subjectId, session: sessionProp }) => {
                     </ul>
                 </div>
             )}
+
+            {/* Modal de progreso para generación de preguntas */}
+            <ProgressModal />
         </div>
     );
 };

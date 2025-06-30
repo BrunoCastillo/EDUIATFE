@@ -3,13 +3,13 @@ import './SubjectForm.css';
 import SyllabusUpload from './SyllabusUpload';
 import FileUpload from './FileUpload';
 
-const SubjectForm = ({ onSubmit, onCancel, initialData }) => {
+const SubjectForm = ({ onSubmit, onCancel, initialData, subjects }) => {
     const [formData, setFormData] = useState({
         name: ''
     });
     const [error, setError] = useState(null);
     const [syllabusUrl, setSyllabusUrl] = useState(null);
-    const [subjectId, setSubjectId] = useState(null);
+    const [subjectId, setLocalSubjectId] = useState(null);
     const [isSubjectCreated, setIsSubjectCreated] = useState(false);
 
     useEffect(() => {
@@ -17,7 +17,7 @@ const SubjectForm = ({ onSubmit, onCancel, initialData }) => {
             setFormData({
                 name: initialData.name || ''
             });
-            setSubjectId(initialData.id);
+            setLocalSubjectId(initialData.id);
             setIsSubjectCreated(true);
         }
     }, [initialData]);
@@ -45,7 +45,7 @@ const SubjectForm = ({ onSubmit, onCancel, initialData }) => {
             });
             
             if (result && result.id && !initialData) {
-                setSubjectId(result.id);
+                setLocalSubjectId(result.id);
                 setIsSubjectCreated(true);
             }
         } catch (error) {
@@ -60,7 +60,7 @@ const SubjectForm = ({ onSubmit, onCancel, initialData }) => {
     const handleNewSubject = () => {
         setIsSubjectCreated(false);
         setFormData({ name: '' });
-        setSubjectId(null);
+        setLocalSubjectId(null);
         setSyllabusUrl(null);
     };
 
@@ -86,7 +86,7 @@ const SubjectForm = ({ onSubmit, onCancel, initialData }) => {
 
                 {error && <div className="error-message">{error}</div>}
 
-                {isSubjectCreated && (
+                {(isSubjectCreated || initialData) && (
                     <>
                         <div className="form-section">
                             <div className="success-message">
@@ -97,6 +97,7 @@ const SubjectForm = ({ onSubmit, onCancel, initialData }) => {
                                 <h4>Carga del Sílabo</h4>
                                 <SyllabusUpload
                                     subjectId={subjectId}
+                                    subjects={subjects}
                                     onUploadComplete={handleSyllabusUpload}
                                 />
                             </div>
